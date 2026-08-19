@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/YgoFm.Calibrator/YgoFm.Calibrator.csproj" />
+    <Project Path="src/YgoFm.Vision/YgoFm.Vision.csproj" />
+  </Folder>
+</Solution>
