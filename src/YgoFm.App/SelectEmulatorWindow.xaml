@@ -1,0 +1,18 @@
+<Window x:Class="YgoFm.App.SelectEmulatorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Escolha a janela do emulador" Height="360" Width="480"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <DockPanel Margin="12">
+        <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" TextWrapping="Wrap"
+                   Text="Qual janela é o emulador? A lista mostra as janelas visíveis; emuladores conhecidos aparecem primeiro, mas qualquer janela pode ser escolhida." />
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="Atualizar" Width="90" Margin="0,0,6,0" Click="Refresh_Click" />
+            <Button Content="Selecionar" Width="90" Margin="0,0,6,0" IsDefault="True" Click="Select_Click" />
+            <Button Content="Cancelar" Width="90" IsCancel="True" />
+        </StackPanel>
+
+        <ListBox x:Name="WindowList" DisplayMemberPath="Display" />
+    </DockPanel>
+</Window>

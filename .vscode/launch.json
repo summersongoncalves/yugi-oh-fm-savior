@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "YgoFm.App",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      // Launch the apphost .exe rather than passing the .dll to "dotnet exec".
+      // Only the apphost embeds app.manifest, and that manifest is what declares
+      // per-monitor DPI (Dots Per Inch) awareness. Debugging through the .dll
+      // would silently rescale screen pixel coordinates on displays running
+      // above 100% scaling, which is exactly what the hand-region selection must not do.
+      "program": "${workspaceFolder}/src/YgoFm.App/bin/Debug/net10.0-windows/YgoFm.App.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/YgoFm.App",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    }
+  ]
+}

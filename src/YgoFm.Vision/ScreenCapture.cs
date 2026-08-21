@@ -36,6 +36,13 @@ public static class ScreenCapture
     /// </summary>
     public static void BringToFront(IntPtr hWnd) => NativeMethods.SetForegroundWindow(hWnd);
 
+    /// <summary>
+    /// True when this window is the one currently on top and receiving input. We read pixels
+    /// off the composited desktop, so capturing while the target is not foreground would show
+    /// whatever got raised over it instead — another window, or nothing useful at all.
+    /// </summary>
+    public static bool IsForeground(IntPtr hWnd) => NativeMethods.GetForegroundWindow() == hWnd;
+
     /// <summary>Capture the area a window occupies, including anything drawn on top of it.</summary>
     public static Bitmap CaptureWindow(IntPtr hWnd)
     {
