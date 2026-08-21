@@ -9,4 +9,19 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\YgoFm.Core\YgoFm.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Card recognition needs real alignment search: measured against a live capture, a
+         hand-rolled colour-grid comparison lost most of its discriminating power after only a
+         few pixels of crop misalignment or the blur an emulator's upscaler adds. OpenCV's
+         template matching searches offsets (and, combined with downsampling, tolerates that
+         blur) the way a purpose-built library should, rather than reinventing it. -->
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
+  </ItemGroup>
+
 </Project>

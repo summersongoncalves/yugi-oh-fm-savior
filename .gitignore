@@ -1,0 +1,51 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# Visual Studio / Rider / user-specific
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# VS Code — keep the shared debug and build configuration, drop the rest,
+# which is per-machine state rather than part of the project.
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+
+# Calibration output. The cut tool writes one PNG per region here for the user
+# to eyeball; it is throwaway verification material, specific to one machine's
+# emulator and window size.
+data/captures/
+
+# Locally learned artwork templates. Built on each user's own machine from their
+# own emulator's rendering, so it is never portable and never committed.
+data/templates/
+
+# Card databases are data, not build output — those stay tracked when they land.
+
+# Scratch project used to test hypotheses against real data (never part of the product;
+# created and deleted within a single working session, kept out of git as a backstop
+# in case cleanup was ever missed).
+/verify-tmp/
+
+# OS noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store

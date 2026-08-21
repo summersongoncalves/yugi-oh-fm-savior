@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Platform-neutral on purpose: this is the game's rules and data, nothing to do
+         with Windows, screens or capture. Keeping it free of a Windows target is what
+         will let the fusion engine be unit-tested without any of that machinery. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
