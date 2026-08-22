@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using YgoFm.Vision;
@@ -10,32 +11,81 @@ using WpfPoint = System.Windows.Point;
 namespace YgoFm.App;
 
 /// <summary>
-/// Lets the user drag a box over a snapshot of the emulator to mark some region of it — the
-/// hand-card row, or the card-name panel; the window does not care which, the caller supplies
-/// the title and instructions to match.
+/// Lets the user drag a box over a snapshot of the emulator to mark one or more regions in a
+/// single continuous session — the hand-card row, then the card-name panel, without closing and
+/// reopening a window between them. A label follows the cursor naming whichever region is
+/// currently being marked; each finished box freezes in place (in a different colour) so earlier
+/// regions stay visible as later ones are marked, then the whole set is confirmed at once.
 ///
 /// Selecting on a still snapshot shown inside our own window, rather than on a transparent
 /// overlay dragged across the real screen, sidesteps per-monitor DPI placement math entirely —
 /// the drag happens in an Image control we already own, in the same per-monitor-aware window
-/// as everything else. The result is expressed as proportions of the snapshot
+/// as everything else. Each result is expressed as proportions of the snapshot
 /// (<see cref="NormRect"/>), so it still survives the emulator window being moved or resized
 /// afterwards, exactly like the viewport/region split the capture layer already uses.
 /// </summary>
 public partial class SelectRegionWindow : Window
 {
+    /// <summary>One region to mark, named by the label shown next to the cursor while marking it.</summary>
+    public sealed record Stage(string Label);
+
     private readonly DrawingBitmap _snapshot;
+    private readonly IReadOnlyList<Stage> _stages;
+    private readonly NormRect?[] _selections;
+    private int _stageIndex;
+
     private WpfPoint? _dragStart;
     private ShapeRectangle? _preview;
 
-    public NormRect? Selection { get; private set; }
+    private readonly Border _cursorLabel;
+    private readonly TextBlock _cursorLabelText;
 
-    public SelectRegionWindow(DrawingBitmap snapshot, string title, string instructions)
+    /// <summary>The confirmed regions, in the same order as the stages passed to the constructor.
+    /// Only meaningful once the dialog returns true.</summary>
+    public IReadOnlyList<NormRect> Selections => _selections.Select(s => s!).ToArray();
+
+    public SelectRegionWindow(DrawingBitmap snapshot, string title, IReadOnlyList<Stage> stages)
     {
+        if (stages.Count == 0) throw new ArgumentException("Need at least one stage.", nameof(stages));
+
         InitializeComponent();
         _snapshot = snapshot;
         Snapshot.Source = snapshot.ToBitmapSource();
         Title = title;
-        InstructionsText.Text = instructions;
+        _stages = stages;
+        _selections = new NormRect?[stages.Count];
+
+        _cursorLabelText = new TextBlock
+        {
+            Foreground = Brushes.White,
+            FontSize = 13,
+        };
+        _cursorLabel = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(220, 20, 20, 20)),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 3, 6, 3),
+            Child = _cursorLabelText,
+            IsHitTestVisible = false, // must never steal the drag's mouse events
+        };
+        Overlay.Children.Add(_cursorLabel);
+        Canvas.SetLeft(_cursorLabel, -1000); // off-screen until the mouse actually enters
+
+        UpdateStageStatus();
+    }
+
+    private void UpdateStageStatus()
+    {
+        if (_stageIndex < _stages.Count)
+        {
+            _cursorLabelText.Text = _stages[_stageIndex].Label;
+            StatusText.Text = $"Passo {_stageIndex + 1} de {_stages.Count}.";
+        }
+        else
+        {
+            _cursorLabelText.Text = "";
+            StatusText.Text = "Todas as regiões marcadas. Clique em Confirmar, ou arraste de novo sobre uma para ajustá-la.";
+        }
     }
 
     // ------------------------------------------------------------ mapping control <-> bitmap
@@ -43,8 +93,8 @@ public partial class SelectRegionWindow : Window
     /// <summary>Where the snapshot is actually drawn inside the stage, given Stretch="Uniform".</summary>
     private Rect DisplayedImageRect()
     {
-        var boxW = Stage.ActualWidth;
-        var boxH = Stage.ActualHeight;
+        var boxW = StageGrid.ActualWidth;
+        var boxH = StageGrid.ActualHeight;
         if (boxW <= 0 || boxH <= 0) return Rect.Empty;
 
         var scale = Math.Min(boxW / _snapshot.Width, boxH / _snapshot.Height);
@@ -72,10 +122,6 @@ public partial class SelectRegionWindow : Window
 
     private void Overlay_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        // Starting a fresh drag replaces whatever was marked before, so the overlay never
-        // shows two boxes at once.
-        Overlay.Children.Clear();
-
         _dragStart = e.GetPosition(Overlay);
 
         _preview = new ShapeRectangle
@@ -90,11 +136,18 @@ public partial class SelectRegionWindow : Window
 
     private void Overlay_MouseMove(object sender, MouseEventArgs e)
     {
+        var pos = e.GetPosition(Overlay);
+
+        // The label rides along with the cursor regardless of whether a drag is in progress,
+        // so it is always obvious which region is being asked for next.
+        Canvas.SetLeft(_cursorLabel, pos.X + 18);
+        Canvas.SetTop(_cursorLabel, pos.Y + 18);
+
         if (_dragStart is not { } start || _preview is null) return;
 
-        var box = Normalise(start, e.GetPosition(Overlay));
-        System.Windows.Controls.Canvas.SetLeft(_preview, box.X);
-        System.Windows.Controls.Canvas.SetTop(_preview, box.Y);
+        var box = Normalise(start, pos);
+        Canvas.SetLeft(_preview, box.X);
+        Canvas.SetTop(_preview, box.Y);
         _preview.Width = box.Width;
         _preview.Height = box.Height;
 
@@ -113,33 +166,46 @@ public partial class SelectRegionWindow : Window
 
         if (box.Width < 4 || box.Height < 4)
         {
-            Overlay.Children.Clear();
-            _preview = null;
+            if (_preview is not null) { Overlay.Children.Remove(_preview); _preview = null; }
             StatusText.Text = "Seleção pequena demais — arraste um retângulo maior.";
-            Selection = null;
             return;
-        }
-
-        // Left in place rather than removed, so the user can see exactly what was marked
-        // before deciding to confirm it.
-        if (_preview is not null)
-        {
-            _preview.Stroke = Brushes.Lime;
-            _preview.StrokeThickness = 2;
         }
 
         var f0 = ToFraction(new WpfPoint(box.Left, box.Top));
         var f1 = ToFraction(new WpfPoint(box.Right, box.Bottom));
-        Selection = new NormRect(f0.X, f0.Y, Math.Max(f1.X - f0.X, 0.01), Math.Max(f1.Y - f0.Y, 0.01));
-        StatusText.Text = "Região marcada. Clique em Confirmar, ou arraste de novo para ajustar.";
+        var selection = new NormRect(f0.X, f0.Y, Math.Max(f1.X - f0.X, 0.01), Math.Max(f1.Y - f0.Y, 0.01));
+
+        if (_stageIndex < _stages.Count)
+        {
+            // Freeze this stage's box in a different colour than the live drag preview, so it
+            // stays legible as a "done" marker while the next region is dragged over it.
+            _preview!.Stroke = Brushes.Cyan;
+            _preview.StrokeThickness = 2;
+            _preview = null;
+
+            _selections[_stageIndex] = selection;
+            _stageIndex++;
+        }
+        else
+        {
+            // All stages already had a box; this drag is a correction over an old one. Which
+            // exact stage it replaces cannot be told apart from geometry alone, so this simple
+            // version just leaves the fresh box as extra visual clutter and does not attempt to
+            // rewire it to a specific stage — good enough for now, since Cancel-and-restart
+            // covers the rare case of wanting to redo an early region.
+            _preview!.Stroke = Brushes.Cyan;
+            _preview = null;
+        }
+
+        UpdateStageStatus();
     }
 
     private void Confirm_Click(object sender, RoutedEventArgs e)
     {
-        if (Selection is null)
+        if (_stageIndex < _stages.Count)
         {
-            MessageBox.Show(this, "Arraste um retângulo antes de confirmar.",
-                "Nenhuma região selecionada", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, $"Ainda falta marcar: {_stages[_stageIndex].Label}",
+                "Faltam regiões", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 

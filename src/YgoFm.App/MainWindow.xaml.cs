@@ -15,7 +15,9 @@ namespace YgoFm.App;
 /// The whole program, for now: pick the emulator window, mark where the hand cards and the
 /// card-name panel are, then watch continuously — showing what the recogniser thinks is in each
 /// slot, teaching the personal template library from the OCR'd name of whichever card is
-/// currently selected, and listing whatever monster fusions the recognised hand allows.
+/// currently selected, and listing whatever monster fusions the recognised hand allows. The
+/// "Avançado" menu (<see cref="ListLearnedCards_Click"/>, <see cref="ClearLearning_Click"/>)
+/// exists purely to inspect and reset that teaching process while testing it.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -32,6 +34,7 @@ public partial class MainWindow : Window
     private CardArtLibrary? _art;
     private TaughtCardLibrary? _taught;
     private HandReader? _reader;
+    private CardThumbnailCache? _thumbnails;
 
     private IntPtr _targetWindow;
     private string _targetWindowTitle = "";
@@ -39,6 +42,26 @@ public partial class MainWindow : Window
     private NormRect? _nameRegion;
     private DispatcherTimer? _timer;
     private bool _busy;
+
+    // Debounces teaching against transition frames (turn changes, animations, menus) — the
+    // vision and OCR readings during those are transient and sometimes coincide well enough to
+    // look confident for a single tick, which was observed to teach the wrong card. A genuine
+    // player-held selection stays on screen for seconds; a transition does not, so requiring the
+    // same (slot, card) pairing to repeat across consecutive ticks before acting on it filters
+    // out the transient case without needing to recognise what a transition actually looks like.
+    //
+    // This is a nullable tuple rather than three separate fields so "no candidate yet" has one
+    // clean representation (null) instead of needing a sentinel like SlotIndex = -1. Once a tick
+    // sees the same pairing again, `pending with { Streak = ... }` produces a new tuple value
+    // with just that field changed — value-type tuples (and records) have no in-place mutation,
+    // so "updating" one always means replacing the field that holds it, which is exactly what
+    // the assignment back into _pendingTeach does.
+    private (int SlotIndex, int CardId, int Streak)? _pendingTeach;
+
+    /// <summary>How many consecutive ticks must agree before a teach is actually written. Picked
+    /// to be small enough not to feel unresponsive at the ~2s tick cadence, not yet validated
+    /// against how long a real transition lasts — turn this up if wrong teaches still slip through.</summary>
+    private const int TeachStreakRequired = 2;
 
     public MainWindow()
     {
@@ -93,22 +116,18 @@ public partial class MainWindow : Window
 
         using (snapshot)
         {
-            var handPicker = new SelectRegionWindow(snapshot,
-                "Selecione onde ficam as cartas da mão",
-                "Arraste um retângulo cobrindo exatamente a fileira de cartas da mão — todas as cartas " +
-                "disponíveis para jogar, lado a lado, incluindo a faixa de ATQ/DEF embaixo de cada uma " +
-                "(é nela que aparece a setinha indicando qual carta está selecionada). " +
-                "É essa faixa que o programa vai observar continuamente.")
+            var regionPicker = new SelectRegionWindow(snapshot, "Selecione as regiões",
+                [
+                    new SelectRegionWindow.Stage("Marque a região das 5 cartas da mão " +
+                        "(inclua a faixa de ATQ/DEF — é nela que aparece a setinha da carta selecionada)"),
+                    new SelectRegionWindow.Stage("Agora marque o painel do nome da carta " +
+                        "(pode marcar com folga, largo o bastante para o nome mais comprido do jogo)"),
+                ])
             { Owner = this };
-            if (handPicker.ShowDialog() != true || handPicker.Selection is not { } handRegion) return;
+            if (regionPicker.ShowDialog() != true) return;
 
-            var namePicker = new SelectRegionWindow(snapshot,
-                "Selecione o painel do nome da carta",
-                "Arraste um retângulo sobre o painel onde o jogo escreve o nome da carta selecionada " +
-                "(a barra na parte de baixo da tela). Pode marcar com folga — largo o bastante para o " +
-                "nome mais comprido do jogo — que isso não atrapalha, ao contrário da seleção da mão.")
-            { Owner = this };
-            if (namePicker.ShowDialog() != true || namePicker.Selection is not { } nameRegion) return;
+            var handRegion = regionPicker.Selections[0];
+            var nameRegion = regionPicker.Selections[1];
 
             _targetWindow = target.Handle;
             _targetWindowTitle = target.Title;
@@ -135,11 +154,56 @@ public partial class MainWindow : Window
 
         StartMenuItem.Header = "_Parar";
         Status($"Observando '{target.Title}'.");
+        _pendingTeach = null;
         UpdateLearningStatus();
 
         _timer = new DispatcherTimer { Interval = PollInterval };
         _timer.Tick += Timer_Tick;
         _timer.Start();
+    }
+
+    // ------------------------------------------------------------ Avançado menu
+    //
+    // Both handlers call EnsureDataLoaded() first rather than assuming Start has already run —
+    // a user could open this menu before ever clicking Start, and _cards/_taught would still be
+    // null at that point. EnsureDataLoaded() is the same lazy-init used at the top of
+    // StartObserving, so calling it twice (once from here, once later from Start) is harmless:
+    // its very first line returns immediately if everything is already loaded.
+
+    private void ListLearnedCards_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureDataLoaded()) return;
+
+        // ShowDialog() (not Show()) blocks this window's input until the list window closes.
+        // There is no ongoing interaction between the two windows once it is open — it just
+        // shows a snapshot of what has been learned — so a modal dialog is simplest here.
+        new LearnedCardsWindow(_cards!, _taught!) { Owner = this }.ShowDialog();
+    }
+
+    private void ClearLearning_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureDataLoaded()) return;
+
+        var count = _taught!.Count;
+        if (count == 0)
+        {
+            MessageBox.Show(this, "Nenhuma carta foi aprendida ainda.", "Aprendizado vazio",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // Destructive and irreversible (see TaughtCardLibrary.Clear — it deletes the PNGs, not
+        // just the in-memory index), so this asks first rather than acting on a menu click alone.
+        var confirmed = MessageBox.Show(this,
+            $"Isso apaga as {count} carta(s) aprendidas nesta máquina (as imagens em data/templates/). " +
+            "Não afeta a base de cartas nem a arte oficial. Continuar?",
+            "Limpar aprendizado", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirmed != MessageBoxResult.Yes) return;
+
+        _taught.Clear();
+        _pendingTeach = null; // otherwise a streak already in progress could re-teach on the very next tick
+        UpdateLearningStatus();
+        Status("Aprendizado limpo.");
     }
 
     private void StopObserving()
@@ -164,6 +228,7 @@ public partial class MainWindow : Window
             _art = CardArtLibrary.Load(ProjectPaths.CardArtFile, _cards.Count);
             _taught = TaughtCardLibrary.Load(ProjectPaths.Templates);
             _reader = new HandReader(_cards, _art, _taught);
+            _thumbnails = new CardThumbnailCache(_art);
             return true;
         }
         catch (Exception ex)
@@ -218,6 +283,13 @@ public partial class MainWindow : Window
             _fusionRows.Clear();
             if (result.Fusions is not null)
                 foreach (var row in result.Fusions) _fusionRows.Add(row);
+
+            // Set directly rather than through a data binding + IValueConverter (the more
+            // "proper WPF" way to turn a count into a Visibility): there is nothing else in this
+            // view model that needs one, so a one-line imperative check here is less machinery
+            // for the same one relationship. Collapsed (not Hidden) removes it from layout too,
+            // so it does not reserve blank space over the ListView while rows are showing.
+            NoFusionsText.Visibility = _fusionRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
             UpdateLearningStatus(result.JustLearned);
         }
@@ -284,9 +356,9 @@ public partial class MainWindow : Window
             // Testing slice: use whatever the recogniser currently reports, confident or not,
             // so this table reflects the recognition pipeline as it actually behaves right now.
             var handIds = readings.Where(r => r.Card is not null).Select(r => r.Card!.Id).ToList();
-            var fusions = _cards!.PossibleFusions(handIds).Select(f => new FusionRowView(f)).ToList();
+            var fusions = _cards!.PossibleChains(handIds).Select(f => new FusionRowView(f, _thumbnails!)).ToList();
 
-            var learned = await TryTeachAsync(full, frameSize, nameRegion, handCrop);
+            var learned = await TryTeachAsync(full, frameSize, nameRegion, handCrop, readings);
 
             return new ReadResult(annotated, rows, fusions, learned, null, false);
         }
@@ -297,20 +369,40 @@ public partial class MainWindow : Window
     /// which hand slot that refers to, and — only when both are unambiguous — save that slot's
     /// artwork as what this card looks like on this machine. Never throws; a failure here should
     /// not take down recognition, which is the part that actually matters every tick.
+    ///
+    /// Only bothers at all when the currently-selected slot is not already a confident read.
+    /// OCR is the single most expensive step here, and once a card is taught it should keep
+    /// reading confidently from the taught library on every later tick — paying for OCR again
+    /// on a card that already recognises fine would be pure waste, on top of slowing down every
+    /// tick for no benefit.
     /// </summary>
-    private async Task<string?> TryTeachAsync(
-        DrawingBitmap full, DrawingRectangle frameSize, NormRect nameRegion, DrawingBitmap handCrop)
+    private async Task<string?> TryTeachAsync(DrawingBitmap full, DrawingRectangle frameSize,
+        NormRect nameRegion, DrawingBitmap handCrop, IReadOnlyList<SlotReading> readings)
     {
         try
         {
+            // Cheap (a colour threshold, no OCR) — worth doing before anything expensive so an
+            // already-confident selected card can bail out without ever touching OCR.
+            var selectedSlot = SelectionDetector.FindSelectedSlot(handCrop, HandLayout.Default.SlotCount);
+            if (selectedSlot is not { } slotIndex) return null;
+
+            var currentReading = readings.FirstOrDefault(r => r.Slot == slotIndex + 1);
+            if (currentReading?.Verdict == SlotVerdict.Confident) return null;
+
             using var namePanelCrop = FrameCropper.Crop(full, nameRegion.ToPixels(frameSize));
             var nameText = await NameReader.Read(namePanelCrop);
 
             var nameMatch = CardNameMatcher.Match(_cards!, nameText);
             if (!nameMatch.Confident) return null;
 
-            var selectedSlot = SelectionDetector.FindSelectedSlot(handCrop, HandLayout.Default.SlotCount);
-            if (selectedSlot is not { } slotIndex) return null;
+            // Require this exact (slot, card) pairing to repeat before acting on it — see the
+            // field comment on _pendingTeach for why.
+            if (_pendingTeach is { } pending && pending.SlotIndex == slotIndex && pending.CardId == nameMatch.Card!.Id)
+                _pendingTeach = pending with { Streak = pending.Streak + 1 };
+            else
+                _pendingTeach = (slotIndex, nameMatch.Card!.Id, 1);
+
+            if (_pendingTeach.Value.Streak < TeachStreakRequired) return null;
 
             var slotBounds = HandReader.SlotBounds(handCrop.Size, HandLayout.Default.SlotCount)[slotIndex];
             using var slotCrop = handCrop.Clone(slotBounds, handCrop.PixelFormat);

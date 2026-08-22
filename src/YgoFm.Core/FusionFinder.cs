@@ -1,48 +1,87 @@
 namespace YgoFm.Core;
 
 /// <summary>
-/// Looks up monster-fusion results for pairs of cards. Monster-only and pair-only on purpose:
-/// the database's Fusions table is actually broader than monster fusion — 27 equip cards and
-/// 19 magic/trap cards carry their own non-empty Fusions entries, producing other equip or
-/// ritual cards (e.g. Legendary Sword + Sword of Dark Destruction -> Kunai with Chain). That
-/// contradicts the "equipment cards do not fuse" assumption in CLAUDE.md and is a real,
-/// separate combination mechanic — worth its own feature later, but out of scope for "which
-/// monsters in hand can fuse", which is all this class answers.
+/// Finds monster-fusion chains achievable from a hand: two or more monster materials, played in
+/// some order, where every play in that order successfully fuses with whatever is already on
+/// the field. This is the game's real mechanic described in CLAUDE.md — materials are played
+/// left to right, and each new card either fuses with the current field monster or, if the
+/// table has no entry for that pair, replaces it outright and the earlier monster is lost — so
+/// which orderings are even worth playing depends on the whole sequence, not just any one pair.
 ///
-/// This also does not attempt the game's real sequential resolution (materials played left to
-/// right, each new card fusing with whatever is already on the field) described in CLAUDE.md.
-/// It only reports which unordered pairs among a set of cards have a catalogued result — a
-/// building block for that engine, and enough on its own to check that recognition plus the
-/// fusion table line up.
+/// A 5-monster hand has at most 320 orderings of two or more cards (sizes 2 through 5), which is
+/// cheap enough to brute-force exhaustively rather than search cleverly, exactly as CLAUDE.md
+/// calls for.
+///
+/// Monster-only on purpose: the database's Fusions table is actually broader than monster
+/// fusion — 27 equip cards and 19 magic/trap cards carry their own non-empty Fusions entries,
+/// producing other equip or ritual cards (e.g. Legendary Sword + Sword of Dark Destruction ->
+/// Kunai with Chain). That contradicts the "equipment cards do not fuse" assumption in
+/// CLAUDE.md and is a real, separate combination mechanic — worth its own feature later, but
+/// out of scope for "which monster fusions can this hand make."
 /// </summary>
 public static class FusionFinder
 {
-    /// <summary>One possible fusion: two materials and what they produce.</summary>
-    public sealed record FusionOption(Card MaterialA, Card MaterialB, Card Result);
+    /// <summary>
+    /// One achievable chain: the materials in the order they would need to be played, and what
+    /// they end up producing. Every step from the second material onward was a successful
+    /// fusion — nothing in <see cref="Materials"/> was discarded along the way.
+    /// </summary>
+    public sealed record FusionChain(IReadOnlyList<Card> Materials, Card Result);
 
     /// <summary>
-    /// Every pair among <paramref name="hand"/> that both are monsters and have a catalogued
-    /// fusion result. Hand is taken as a list of card ids (not a set) so two slots holding the
-    /// same card are still considered as two separate materials.
+    /// Every ordering of two or more monsters in <paramref name="hand"/> that fuses cleanly all
+    /// the way through. Hand is taken as a list of card ids by slot (not a set), so two slots
+    /// holding the same card are still two separate materials, and swapping which physical copy
+    /// is played first does not produce a duplicate entry.
     /// </summary>
-    public static IReadOnlyList<FusionOption> PossibleFusions(this CardDatabase db, IReadOnlyList<int> hand)
+    public static IReadOnlyList<FusionChain> PossibleChains(this CardDatabase db, IReadOnlyList<int> hand)
     {
-        var options = new List<FusionOption>();
-
+        var monsterSlots = new List<int>();
         for (var i = 0; i < hand.Count; i++)
         {
-            if (!db.TryGet(hand[i], out var a) || !a.Kind.IsMonster()) continue;
+            if (db.TryGet(hand[i], out var card) && card.Kind.IsMonster())
+                monsterSlots.Add(i);
+        }
 
-            for (var j = i + 1; j < hand.Count; j++)
+        var seen = new HashSet<string>();
+        var chains = new List<FusionChain>();
+
+        foreach (var subset in Subsets(monsterSlots))
+        {
+            if (subset.Count < 2) continue;
+
+            foreach (var order in Permutations(subset))
             {
-                if (!db.TryGet(hand[j], out var b) || !b.Kind.IsMonster()) continue;
+                Card? field = null;
+                var clean = true;
 
-                if (TryFind(db, a.Id, b.Id, out var result))
-                    options.Add(new FusionOption(a, b, result));
+                foreach (var slot in order)
+                {
+                    var card = db[hand[slot]];
+                    if (field is null) { field = card; continue; }
+
+                    if (TryFind(db, field.Id, card.Id, out var result))
+                        field = result;
+                    else
+                    {
+                        clean = false;
+                        break;
+                    }
+                }
+
+                if (!clean) continue;
+
+                // Two slots holding identical cards produce the identical id sequence and
+                // result no matter which physical copy leads — collapse those rather than
+                // showing the same chain twice.
+                var key = string.Join(",", order.Select(slot => hand[slot])) + "|" + field!.Id;
+                if (!seen.Add(key)) continue;
+
+                chains.Add(new FusionChain(order.Select(slot => db[hand[slot]]).ToList(), field));
             }
         }
 
-        return options;
+        return chains;
     }
 
     /// <summary>The fusion table stores each pair once, on the lower-numbered card.</summary>
@@ -60,5 +99,39 @@ public static class FusionFinder
 
         result = null!;
         return false;
+    }
+
+    private static IEnumerable<List<int>> Subsets(List<int> items)
+    {
+        var n = items.Count;
+        for (var mask = 1; mask < (1 << n); mask++)
+        {
+            var subset = new List<int>();
+            for (var i = 0; i < n; i++)
+                if ((mask & (1 << i)) != 0) subset.Add(items[i]);
+            yield return subset;
+        }
+    }
+
+    private static IEnumerable<List<int>> Permutations(List<int> items)
+    {
+        if (items.Count == 0)
+        {
+            yield return [];
+            yield break;
+        }
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            var rest = new List<int>(items);
+            rest.RemoveAt(i);
+
+            foreach (var tail in Permutations(rest))
+            {
+                var full = new List<int> { items[i] };
+                full.AddRange(tail);
+                yield return full;
+            }
+        }
     }
 }

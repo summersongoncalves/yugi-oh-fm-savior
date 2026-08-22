@@ -26,6 +26,13 @@ public sealed class TaughtCardLibrary : IDisposable
     /// <summary>How many cards have been taught so far.</summary>
     public int Count => _matcher.Count;
 
+    /// <summary>Ids of every card taught so far, for a "what has this learned" listing.</summary>
+    public IReadOnlyCollection<int> LearnedCardIds => _matcher.Ids;
+
+    /// <summary>Where a learned card's image is stored, for a listing to show what was actually
+    /// captured (as opposed to the official art) — the point of looking is to catch a bad lesson.</summary>
+    public string PathFor(int cardId) => Path.Combine(_folder, $"{cardId}.png");
+
     /// <summary>Loads whatever has already been taught in a previous session.</summary>
     public static TaughtCardLibrary Load(string folder)
     {
@@ -61,6 +68,28 @@ public sealed class TaughtCardLibrary : IDisposable
     /// <see cref="CardArtLibrary"/> in that case, and whenever this returns too weak a match.
     /// </summary>
     public ArtMatch? Match(Bitmap capturedRegion) => _matcher.Match(capturedRegion);
+
+    /// <summary>
+    /// Forgets everything taught, on disk and in memory. For testing the teaching pipeline
+    /// itself from a clean slate, without needing to touch the file system by hand.
+    ///
+    /// Both halves matter: removing only the in-memory <see cref="TemplateMatcher"/> entries
+    /// would leave the PNGs on disk, so the very next <see cref="Load"/> (e.g. the next time the
+    /// app starts) would just read them straight back in. Deleting only the files but not
+    /// calling <c>_matcher.Remove</c> would leave this running session still matching against
+    /// templates that no longer exist on disk, silently diverging from what a fresh load would
+    /// see. <c>.ToList()</c> is needed before the loop because <see cref="TemplateMatcher.Remove"/>
+    /// mutates the very dictionary that <c>_matcher.Ids</c> reads from — iterating a collection
+    /// while removing from it throws, so the id list is copied out first.
+    /// </summary>
+    public void Clear()
+    {
+        foreach (var id in _matcher.Ids.ToList())
+            _matcher.Remove(id);
+
+        foreach (var path in Directory.EnumerateFiles(_folder, "*.png"))
+            File.Delete(path);
+    }
 
     public void Dispose() => _matcher.Dispose();
 }
