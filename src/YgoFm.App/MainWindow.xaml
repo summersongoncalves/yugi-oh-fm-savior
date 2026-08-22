@@ -1,8 +1,8 @@
 <Window x:Class="YgoFm.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Yu-Gi-Oh! Forbidden Memories — Assistente" Height="560" Width="1000"
-        MinHeight="360" MinWidth="720">
+        Title="Yu-Gi-Oh! Forbidden Memories — Assistente" Height="820" Width="820"
+        MinHeight="560" MinWidth="680">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem x:Name="StartMenuItem" Header="_Start" Click="Start_Click" />
@@ -19,60 +19,152 @@
         <TextBlock x:Name="LearningStatusText" DockPanel.Dock="Bottom" Margin="8,4,8,0" Style="{StaticResource Hint}"
                    Text="Biblioteca ensinada: 0 cartas." />
 
+        <!--
+             Single column, stacked top to bottom: the preview snapshot (sized to its own actual
+             pixels, not stretched to fill space — see PreviewImage below), then the hand-reading
+             table (sized to exactly its 5 rows, no wasted space), then the fusion table filling
+             whatever is left. Each "Auto" row asks WPF to size that row to its content's natural
+             height rather than sharing space proportionally, which is what makes both the image
+             and the 5-row table hug their real content instead of stretching.
+        -->
         <Grid Margin="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1.3*" />
-                <ColumnDefinition Width="8" />
-                <ColumnDefinition Width="1*" MinWidth="420" />
-            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="8" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="8" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-            <Border Grid.Column="0" BorderBrush="#999" BorderThickness="1" Background="#111">
-                <Image x:Name="PreviewImage" Stretch="Uniform" />
+            <Border Grid.Row="0" BorderBrush="#999" BorderThickness="1" Background="#111"
+                    HorizontalAlignment="Center">
+                <!-- Stretch="None" shows the captured hand crop at its real pixel size instead of
+                     scaling it to fill whatever space is available — that scaling is exactly what
+                     made the old side-by-side layout size this area arbitrarily. -->
+                <Image x:Name="PreviewImage" Stretch="None" />
             </Border>
 
-            <Grid Grid.Column="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="1*" />
-                    <RowDefinition Height="8" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="1*" />
-                </Grid.RowDefinitions>
+            <!-- No explicit Height: a ListView with nothing constraining it sizes to fit its
+                 items' natural height, and this always holds exactly 5 rows (one per hand slot),
+                 so "natural height" already means "just tall enough for 5 rows plus the header". -->
+            <ListView Grid.Row="2" x:Name="ReadingsList">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Slot" Width="40">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Slot}" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Carta" Width="180">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding CardLabel}" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Confiança" Width="80">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding VerdictLabel}" Foreground="{Binding VerdictBrush}" FontWeight="Bold" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Pontuação" Width="90">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding ScoreLabel}" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Fonte" Width="70">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding SourceLabel}" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
 
-                <ListView Grid.Row="0" x:Name="ReadingsList">
+            <TextBlock Grid.Row="4" Text="Fusões de monstro possíveis" FontWeight="Bold" Margin="2,8,2,4" />
+
+            <Grid Grid.Row="5">
+                <ListView x:Name="FusionsList">
                     <ListView.View>
                         <GridView>
-                            <GridViewColumn Header="Slot" Width="40">
+                            <GridViewColumn Header="Carta 1" Width="76">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding Slot}" />
+                                        <StackPanel ToolTip="{Binding Card1}">
+                                            <Image Source="{Binding Image1}" Height="42" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding Card1}" FontSize="10" TextWrapping="Wrap"
+                                                       TextAlignment="Center" MaxWidth="72" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
-                            <GridViewColumn Header="Carta" Width="130">
+                            <GridViewColumn Header="Carta 2" Width="76">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding CardLabel}" />
+                                        <StackPanel ToolTip="{Binding Card2}">
+                                            <Image Source="{Binding Image2}" Height="42" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding Card2}" FontSize="10" TextWrapping="Wrap"
+                                                       TextAlignment="Center" MaxWidth="72" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
-                            <GridViewColumn Header="Confiança" Width="70">
+                            <GridViewColumn Header="Carta 3" Width="76">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding VerdictLabel}" Foreground="{Binding VerdictBrush}" FontWeight="Bold" />
+                                        <StackPanel ToolTip="{Binding Card3}">
+                                            <Image Source="{Binding Image3}" Height="42" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding Card3}" FontSize="10" TextWrapping="Wrap"
+                                                       TextAlignment="Center" MaxWidth="72" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
-                            <GridViewColumn Header="Pontuação" Width="70">
+                            <GridViewColumn Header="Carta 4" Width="76">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding ScoreLabel}" />
+                                        <StackPanel ToolTip="{Binding Card4}">
+                                            <Image Source="{Binding Image4}" Height="42" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding Card4}" FontSize="10" TextWrapping="Wrap"
+                                                       TextAlignment="Center" MaxWidth="72" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
-                            <GridViewColumn Header="Fonte" Width="60">
+                            <GridViewColumn Header="Carta 5" Width="76">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding SourceLabel}" />
+                                        <StackPanel ToolTip="{Binding Card5}">
+                                            <Image Source="{Binding Image5}" Height="42" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding Card5}" FontSize="10" TextWrapping="Wrap"
+                                                       TextAlignment="Center" MaxWidth="72" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="Resultado" Width="110">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <!-- The only column that also shows ATK/DEF: knowing what
+                                             a fusion produces matters most for the card you would
+                                             actually end up playing, not the materials spent to
+                                             get there. -->
+                                        <StackPanel ToolTip="{Binding Result}">
+                                            <Image Source="{Binding ImageResult}" Height="42" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding Result}" FontSize="10" TextWrapping="Wrap"
+                                                       TextAlignment="Center" MaxWidth="106" FontWeight="Bold" />
+                                            <TextBlock Text="{Binding ResultStats}" FontSize="9" TextAlignment="Center"
+                                                       Foreground="Gray" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
@@ -80,86 +172,9 @@
                     </ListView.View>
                 </ListView>
 
-                <TextBlock Grid.Row="2" Text="Fusões de monstro possíveis" FontWeight="Bold" Margin="2,0,2,4" />
-
-                <Grid Grid.Row="3">
-                    <ListView x:Name="FusionsList">
-                        <ListView.View>
-                            <GridView>
-                                <GridViewColumn Header="Carta 1" Width="76">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel ToolTip="{Binding Card1}">
-                                                <Image Source="{Binding Image1}" Height="42" Stretch="Uniform" />
-                                                <TextBlock Text="{Binding Card1}" FontSize="10" TextWrapping="Wrap"
-                                                           TextAlignment="Center" MaxWidth="72" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="Carta 2" Width="76">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel ToolTip="{Binding Card2}">
-                                                <Image Source="{Binding Image2}" Height="42" Stretch="Uniform" />
-                                                <TextBlock Text="{Binding Card2}" FontSize="10" TextWrapping="Wrap"
-                                                           TextAlignment="Center" MaxWidth="72" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="Carta 3" Width="76">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel ToolTip="{Binding Card3}">
-                                                <Image Source="{Binding Image3}" Height="42" Stretch="Uniform" />
-                                                <TextBlock Text="{Binding Card3}" FontSize="10" TextWrapping="Wrap"
-                                                           TextAlignment="Center" MaxWidth="72" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="Carta 4" Width="76">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel ToolTip="{Binding Card4}">
-                                                <Image Source="{Binding Image4}" Height="42" Stretch="Uniform" />
-                                                <TextBlock Text="{Binding Card4}" FontSize="10" TextWrapping="Wrap"
-                                                           TextAlignment="Center" MaxWidth="72" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="Carta 5" Width="76">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel ToolTip="{Binding Card5}">
-                                                <Image Source="{Binding Image5}" Height="42" Stretch="Uniform" />
-                                                <TextBlock Text="{Binding Card5}" FontSize="10" TextWrapping="Wrap"
-                                                           TextAlignment="Center" MaxWidth="72" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="Resultado" Width="100">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel ToolTip="{Binding Result}">
-                                                <Image Source="{Binding ImageResult}" Height="42" Stretch="Uniform" />
-                                                <TextBlock Text="{Binding Result}" FontSize="10" TextWrapping="Wrap"
-                                                           TextAlignment="Center" MaxWidth="96" FontWeight="Bold" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                            </GridView>
-                        </ListView.View>
-                    </ListView>
-
-                    <TextBlock x:Name="NoFusionsText" Style="{StaticResource Hint}"
-                               HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0"
-                               Text="Nenhuma fusão possível com as cartas reconhecidas agora." Visibility="Collapsed" />
-                </Grid>
+                <TextBlock x:Name="NoFusionsText" Style="{StaticResource Hint}"
+                           HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0"
+                           Text="Nenhuma fusão possível com as cartas reconhecidas agora." Visibility="Collapsed" />
             </Grid>
         </Grid>
     </DockPanel>

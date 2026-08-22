@@ -31,6 +31,11 @@ public sealed class FusionRowView(FusionFinder.FusionChain chain, CardThumbnailC
     public string Card5 => MaterialAt(4)?.Name ?? "";
     public string Result => chain.Result.Name;
 
+    /// <summary>ATK/DEF for the result only — not the materials. What a fusion produces is what
+    /// actually ends up on the field, so that is the card whose stats matter here; the materials
+    /// are just spent to get there.</summary>
+    public string ResultStats => $"ATQ {chain.Result.Attack} / DEF {chain.Result.Defense}";
+
     // Each pulls its BitmapSource from the shared CardThumbnailCache rather than converting the
     // art itself — see that class for why (mainly: the same card recurs across many rows every
     // tick, and the conversion is not free).
