@@ -291,7 +291,7 @@ public partial class MainWindow : Window
             // so it does not reserve blank space over the ListView while rows are showing.
             NoFusionsText.Visibility = _fusionRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-            UpdateLearningStatus(result.JustLearned);
+            UpdateLearningStatus(result.JustLearned, result.TeachDiagnostic);
         }
         finally
         {
@@ -299,18 +299,36 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateLearningStatus(string? justLearned = null)
+    /// <summary>
+    /// <paramref name="diagnostic"/> is shown every tick regardless of whether anything was
+    /// learned — this is the visible trace of TryTeachAsync's internal state (which stage it
+    /// reached, and why it stopped there) that replaced silently guessing from the outside
+    /// when the whole pipeline checked out fine in isolation but still would not teach live.
+    /// </summary>
+    private void UpdateLearningStatus(string? justLearned = null, string? diagnostic = null)
     {
         var count = _taught?.Count ?? 0;
         var total = _cards?.Count ?? 0;
-        LearningStatusText.Text = justLearned is null
+        var header = justLearned is null
             ? $"Biblioteca ensinada: {count} de {total} cartas."
             : $"Biblioteca ensinada: {count} de {total} cartas. Aprendeu agora: {justLearned}.";
+        LearningStatusText.Text = diagnostic is null ? header : $"{header} [{diagnostic}]";
     }
 
     private readonly record struct ReadResult(
         DrawingBitmap? Annotated, List<SlotReadingView>? Rows, List<FusionRowView>? Fusions,
-        string? JustLearned, string? Error, bool Inactive);
+        string? JustLearned, string? TeachDiagnostic, string? Error, bool Inactive);
+
+    /// <summary>
+    /// <see cref="Learned"/> is set only on the tick a teach actually commits.
+    /// <see cref="Diagnostic"/> is set on every call, whether or not anything was learned — it
+    /// exists purely so the "why isn't this teaching?" question has a visible answer on screen
+    /// (see <see cref="UpdateLearningStatus"/>) instead of only silent success or silent no-op.
+    /// That distinction is what let <see cref="TryTeachAsync"/> go back to swallowing every
+    /// exception in one <c>catch</c> at the bottom without that being a dead end for debugging —
+    /// the exception's own message becomes the diagnostic text instead of vanishing.
+    /// </summary>
+    private readonly record struct TeachAttempt(string? Learned, string Diagnostic);
 
     /// <summary>
     /// Runs the capture, recognition and (best-effort) teaching for one tick. Recognition
@@ -324,14 +342,14 @@ public partial class MainWindow : Window
     {
         var bounds = ScreenCapture.WindowBounds(_targetWindow);
         if (bounds.Width <= 0 || bounds.Height <= 0)
-            return new ReadResult(null, null, null, null, "A janela do emulador não está mais visível.", false);
+            return new ReadResult(null, null, null, null, null, "A janela do emulador não está mais visível.", false);
 
         // We read pixels off the composited desktop: if the emulator is not the foreground
         // window, whatever got raised over it would be captured instead — another window, or
         // the desktop. Rather than capture that garbage, skip the tick entirely and leave the
         // last real frame on screen; the status line is what tells the user it is paused.
         if (!ScreenCapture.IsForeground(_targetWindow))
-            return new ReadResult(null, null, null, null, null, true);
+            return new ReadResult(null, null, null, null, null, null, true);
 
         using var full = ScreenCapture.CaptureRegion(bounds);
         var frameSize = new DrawingRectangle(DrawingPoint.Empty, full.Size);
@@ -343,7 +361,7 @@ public partial class MainWindow : Window
         }
         catch (ArgumentOutOfRangeException)
         {
-            return new ReadResult(null, null, null, null,
+            return new ReadResult(null, null, null, null, null,
                 "A região da mão não cabe mais na janela — ela pode ter sido redimensionada.", false);
         }
 
@@ -358,9 +376,9 @@ public partial class MainWindow : Window
             var handIds = readings.Where(r => r.Card is not null).Select(r => r.Card!.Id).ToList();
             var fusions = _cards!.PossibleChains(handIds).Select(f => new FusionRowView(f, _thumbnails!)).ToList();
 
-            var learned = await TryTeachAsync(full, frameSize, nameRegion, handCrop, readings);
+            var teach = await TryTeachAsync(full, frameSize, nameRegion, handCrop, readings);
 
-            return new ReadResult(annotated, rows, fusions, learned, null, false);
+            return new ReadResult(annotated, rows, fusions, teach.Learned, teach.Diagnostic, null, false);
         }
     }
 
@@ -370,30 +388,37 @@ public partial class MainWindow : Window
     /// artwork as what this card looks like on this machine. Never throws; a failure here should
     /// not take down recognition, which is the part that actually matters every tick.
     ///
-    /// Only bothers at all when the currently-selected slot is not already a confident read.
-    /// OCR is the single most expensive step here, and once a card is taught it should keep
-    /// reading confidently from the taught library on every later tick — paying for OCR again
-    /// on a card that already recognises fine would be pure waste, on top of slowing down every
-    /// tick for no benefit.
+    /// Only bothers at all when the currently-selected slot is not already a confident read
+    /// from the *taught* library specifically — not just confident from official-art matching.
+    /// This distinction matters: official-art "confident" was measured to still be wrong
+    /// sometimes (its score/margin thresholds were rough starting points, not validated
+    /// accuracy), and skipping teaching whenever official art claims confidence would mean a
+    /// card that official art confidently mis-reads can never get corrected — the exact case
+    /// teaching exists to fix. Once a card really is backed by a taught template, though, that
+    /// comparison is trustworthy (same rendering style on both sides), so it is fine to stop
+    /// paying for OCR on it every tick.
     /// </summary>
-    private async Task<string?> TryTeachAsync(DrawingBitmap full, DrawingRectangle frameSize,
+    private async Task<TeachAttempt> TryTeachAsync(DrawingBitmap full, DrawingRectangle frameSize,
         NormRect nameRegion, DrawingBitmap handCrop, IReadOnlyList<SlotReading> readings)
     {
         try
         {
             // Cheap (a colour threshold, no OCR) — worth doing before anything expensive so an
-            // already-confident selected card can bail out without ever touching OCR.
+            // already-taught-and-confident selected card can bail out without ever touching OCR.
             var selectedSlot = SelectionDetector.FindSelectedSlot(handCrop, HandLayout.Default.SlotCount);
-            if (selectedSlot is not { } slotIndex) return null;
+            if (selectedSlot is not { } slotIndex)
+                return new TeachAttempt(null, "nenhuma carta selecionada detectada (seta não encontrada)");
 
             var currentReading = readings.FirstOrDefault(r => r.Slot == slotIndex + 1);
-            if (currentReading?.Verdict == SlotVerdict.Confident) return null;
+            if (currentReading is { Verdict: SlotVerdict.Confident, Source: MatchSource.Taught })
+                return new TeachAttempt(null, $"slot {slotIndex + 1} já confiante via ensinado, nada a fazer");
 
             using var namePanelCrop = FrameCropper.Crop(full, nameRegion.ToPixels(frameSize));
             var nameText = await NameReader.Read(namePanelCrop);
 
             var nameMatch = CardNameMatcher.Match(_cards!, nameText);
-            if (!nameMatch.Confident) return null;
+            if (!nameMatch.Confident)
+                return new TeachAttempt(null, $"OCR leu \"{nameText}\" — sem correspondência de nome confiável");
 
             // Require this exact (slot, card) pairing to repeat before acting on it — see the
             // field comment on _pendingTeach for why.
@@ -402,11 +427,15 @@ public partial class MainWindow : Window
             else
                 _pendingTeach = (slotIndex, nameMatch.Card!.Id, 1);
 
-            if (_pendingTeach.Value.Streak < TeachStreakRequired) return null;
+            if (_pendingTeach.Value.Streak < TeachStreakRequired)
+                return new TeachAttempt(null,
+                    $"candidato slot {slotIndex + 1} = {nameMatch.Card!.Name} " +
+                    $"({_pendingTeach.Value.Streak}/{TeachStreakRequired} ciclos seguidos)");
 
             var slotBounds = HandReader.SlotBounds(handCrop.Size, HandLayout.Default.SlotCount)[slotIndex];
             using var slotCrop = handCrop.Clone(slotBounds, handCrop.PixelFormat);
-            if (CardArtLibrary.LooksEmpty(slotCrop)) return null;
+            if (CardArtLibrary.LooksEmpty(slotCrop))
+                return new TeachAttempt(null, $"slot {slotIndex + 1} parece vazio (imagem sem detalhe) — não ensinado");
 
             // Teach only the artwork, not the ATK/DEF row below it — see HandLayout.ArtOnly for
             // why that row is worth trimming away rather than just going along for the ride.
@@ -414,11 +443,12 @@ public partial class MainWindow : Window
             // two sides of every future comparison stay in matching proportions.
             using var artOnlyCrop = slotCrop.Clone(HandLayout.ArtOnly(slotCrop.Size), slotCrop.PixelFormat);
             _taught!.Teach(nameMatch.Card!.Id, artOnlyCrop);
-            return $"{nameMatch.Card.Name} (#{nameMatch.Card.Id})";
+            var label = $"{nameMatch.Card.Name} (#{nameMatch.Card.Id})";
+            return new TeachAttempt(label, $"ensinou agora: {label}");
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            return new TeachAttempt(null, $"ERRO ao tentar ensinar: {ex.Message}");
         }
     }
 
