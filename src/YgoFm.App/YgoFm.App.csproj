@@ -2,7 +2,9 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Matches YgoFm.Vision's TFM, which needs the Windows-version-qualified form to reach
+         Windows.Media.Ocr (see that project for why). -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- WPF only. Windows Forms is deliberately not enabled here: it would import global

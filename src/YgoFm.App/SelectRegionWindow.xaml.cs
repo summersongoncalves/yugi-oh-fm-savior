@@ -10,7 +10,9 @@ using WpfPoint = System.Windows.Point;
 namespace YgoFm.App;
 
 /// <summary>
-/// Lets the user drag a box over a snapshot of the emulator to mark where the hand cards are.
+/// Lets the user drag a box over a snapshot of the emulator to mark some region of it — the
+/// hand-card row, or the card-name panel; the window does not care which, the caller supplies
+/// the title and instructions to match.
 ///
 /// Selecting on a still snapshot shown inside our own window, rather than on a transparent
 /// overlay dragged across the real screen, sidesteps per-monitor DPI placement math entirely —
@@ -19,7 +21,7 @@ namespace YgoFm.App;
 /// (<see cref="NormRect"/>), so it still survives the emulator window being moved or resized
 /// afterwards, exactly like the viewport/region split the capture layer already uses.
 /// </summary>
-public partial class SelectHandRegionWindow : Window
+public partial class SelectRegionWindow : Window
 {
     private readonly DrawingBitmap _snapshot;
     private WpfPoint? _dragStart;
@@ -27,11 +29,13 @@ public partial class SelectHandRegionWindow : Window
 
     public NormRect? Selection { get; private set; }
 
-    public SelectHandRegionWindow(DrawingBitmap snapshot)
+    public SelectRegionWindow(DrawingBitmap snapshot, string title, string instructions)
     {
         InitializeComponent();
         _snapshot = snapshot;
         Snapshot.Source = snapshot.ToBitmapSource();
+        Title = title;
+        InstructionsText.Text = instructions;
     }
 
     // ------------------------------------------------------------ mapping control <-> bitmap
@@ -134,7 +138,7 @@ public partial class SelectHandRegionWindow : Window
     {
         if (Selection is null)
         {
-            MessageBox.Show(this, "Arraste um retângulo sobre as cartas da mão antes de confirmar.",
+            MessageBox.Show(this, "Arraste um retângulo antes de confirmar.",
                 "Nenhuma região selecionada", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }

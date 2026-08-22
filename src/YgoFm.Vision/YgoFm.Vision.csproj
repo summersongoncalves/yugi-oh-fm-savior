@@ -1,7 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- The Windows-version-qualified TFM (rather than plain net10.0-windows) is what exposes
+         WinRT APIs, specifically Windows.Media.Ocr for reading the card-name panel. OcrEngine
+         itself has existed since the very first Windows 10 release, so this does not raise the
+         real minimum OS beyond "Windows 10" — which the project already required in practice
+         (WPF app, .NET 10). -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Brings in System.Drawing (Bitmap, Graphics.CopyFromScreen) and Screen.AllScreens
