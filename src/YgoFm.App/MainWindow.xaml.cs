@@ -408,7 +408,12 @@ public partial class MainWindow : Window
             using var slotCrop = handCrop.Clone(slotBounds, handCrop.PixelFormat);
             if (CardArtLibrary.LooksEmpty(slotCrop)) return null;
 
-            _taught!.Teach(nameMatch.Card!.Id, slotCrop);
+            // Teach only the artwork, not the ATK/DEF row below it — see HandLayout.ArtOnly for
+            // why that row is worth trimming away rather than just going along for the ride.
+            // HandReader.ReadSlot crops its own taught-library query the exact same way, so the
+            // two sides of every future comparison stay in matching proportions.
+            using var artOnlyCrop = slotCrop.Clone(HandLayout.ArtOnly(slotCrop.Size), slotCrop.PixelFormat);
+            _taught!.Teach(nameMatch.Card!.Id, artOnlyCrop);
             return $"{nameMatch.Card.Name} (#{nameMatch.Card.Id})";
         }
         catch

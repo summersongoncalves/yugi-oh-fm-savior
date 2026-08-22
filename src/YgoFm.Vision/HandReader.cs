@@ -22,6 +22,32 @@ public sealed record HandLayout(int SlotCount)
 {
     /// <summary>Five slots, because that is the hand size.</summary>
     public static HandLayout Default { get; } = new(5);
+
+    /// <summary>
+    /// How much of a slot's height, measured down from the top, is the card's artwork rather
+    /// than the ATK/DEF stat row Forbidden Memories draws underneath it. Measured off a real
+    /// capture: the selection arrow — which sits inside that stat row (see
+    /// <see cref="SelectionDetector"/>) — started at roughly 73% of the way down the slot, so
+    /// this stops a bit earlier than that to stay safely inside the artwork rather than
+    /// straddling the boundary.
+    ///
+    /// This matters because of what the stat row actually *is*: the same digits every time for
+    /// a given card (its fixed ATK/DEF), inside identical icon chrome regardless of which card
+    /// is shown. It is not "noise" in the sense of being random, but it carries close to zero
+    /// power to tell two cards apart — plenty of different monsters share the same ATK/DEF
+    /// values — while still occupying real pixel area that a correlation score (see
+    /// <see cref="TemplateMatcher"/>) averages over. Including it dilutes the very thing that
+    /// *does* discriminate (the art) without adding anything back. The selection-arrow search
+    /// still needs the whole slot including this row; only teaching and matching against the
+    /// taught library trim it away — see <see cref="ArtOnly"/>.
+    /// </summary>
+    public const double ArtHeightFraction = 0.65;
+
+    /// <summary>The art-only portion of a slot-local rectangle (top-left at 0,0), per
+    /// <see cref="ArtHeightFraction"/>. "Slot-local" because this is meant to be applied to a
+    /// bitmap already cropped down to one slot, not to frame-wide coordinates.</summary>
+    public static Rectangle ArtOnly(Size slotSize) =>
+        new(0, 0, slotSize.Width, Math.Max(1, (int)(slotSize.Height * ArtHeightFraction)));
 }
 
 /// <summary>What the recogniser made of one card position.</summary>
@@ -167,7 +193,13 @@ public sealed class HandReader
         // against earlier captures of the same card from the same setup, which should be a far
         // closer match than anything official art can offer. Only fall back to official art —
         // and its lower, margin-led bar — when the taught library has nothing confident to say.
-        var taughtMatch = _taught?.Match(slotBitmap);
+        //
+        // Cropped to HandLayout.ArtOnly first: what got taught (see MainWindow.TryTeachAsync)
+        // was also art-only, so comparing like-for-like means trimming this side the same way —
+        // otherwise the stat row present here but absent from the template would just be extra
+        // mismatched pixels dragging the score down for no reason.
+        using var artOnlyBitmap = slotBitmap.Clone(HandLayout.ArtOnly(slotBitmap.Size), slotBitmap.PixelFormat);
+        var taughtMatch = _taught?.Match(artOnlyBitmap);
         if (taughtMatch is { } tm && tm.Score >= TaughtConfidentScore && tm.Margin >= TaughtConfidentMargin)
             return BuildReading(slotNumber, slotBounds, tm, MatchSource.Taught, SlotVerdict.Confident);
 
