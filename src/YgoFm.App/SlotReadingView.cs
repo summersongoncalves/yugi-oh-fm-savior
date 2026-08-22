@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using YgoFm.Vision;
 
 namespace YgoFm.App;
@@ -23,6 +24,20 @@ public sealed class SlotReadingView(SlotReading reading)
         SlotVerdict.Uncertain => "incerto",
         SlotVerdict.Confident => "ok",
         _ => "",
+    };
+
+    /// <summary>
+    /// Red/yellow/green at a glance, matching <see cref="VerdictLabel"/> — bound in the XAML as
+    /// the "Confiança" column's <c>Foreground</c>. A WPF <c>TextBlock.Foreground</c> is typed as
+    /// <see cref="Brush"/>, not <see cref="Color"/>, which is why this returns one of the named
+    /// <see cref="Brushes"/> constants rather than a colour value directly.
+    /// </summary>
+    public Brush VerdictBrush => reading.Verdict switch
+    {
+        SlotVerdict.Confident => Brushes.ForestGreen,
+        SlotVerdict.Uncertain => Brushes.DarkGoldenrod,
+        SlotVerdict.Empty => Brushes.Firebrick,
+        _ => Brushes.Gray,
     };
 
     public string ScoreLabel => reading.Verdict == SlotVerdict.Empty
