@@ -15,7 +15,10 @@ namespace YgoFm.App;
 /// single continuous session — the hand-card row, then the card-name panel, without closing and
 /// reopening a window between them. A label follows the cursor naming whichever region is
 /// currently being marked; each finished box freezes in place (in a different colour) so earlier
-/// regions stay visible as later ones are marked, then the whole set is confirmed at once.
+/// regions stay visible as later ones are marked. The moment the last region lands, a yes/no
+/// prompt (see <see cref="PromptFinishOrRedo"/>) asks whether to proceed or throw everything out
+/// and redo the whole pass — there is no state where the user is left free-dragging extra boxes
+/// with nothing left for them to mean.
 ///
 /// Selecting on a still snapshot shown inside our own window, rather than on a transparent
 /// overlay dragged across the real screen, sidesteps per-monitor DPI placement math entirely —
@@ -74,18 +77,15 @@ public partial class SelectRegionWindow : Window
         UpdateStageStatus();
     }
 
+    /// <summary>
+    /// Only ever called with a stage still pending — <see cref="Overlay_MouseUp"/> calls
+    /// <see cref="PromptFinishOrRedo"/> instead of this the moment the last stage completes, so
+    /// there is no "all done, label blank" state for this to describe any more.
+    /// </summary>
     private void UpdateStageStatus()
     {
-        if (_stageIndex < _stages.Count)
-        {
-            _cursorLabelText.Text = _stages[_stageIndex].Label;
-            StatusText.Text = $"Passo {_stageIndex + 1} de {_stages.Count}.";
-        }
-        else
-        {
-            _cursorLabelText.Text = "";
-            StatusText.Text = "Todas as regiões marcadas. Clique em Confirmar, ou arraste de novo sobre uma para ajustá-la.";
-        }
+        _cursorLabelText.Text = _stages[_stageIndex].Label;
+        StatusText.Text = $"Passo {_stageIndex + 1} de {_stages.Count}.";
     }
 
     // ------------------------------------------------------------ mapping control <-> bitmap
@@ -122,6 +122,12 @@ public partial class SelectRegionWindow : Window
 
     private void Overlay_MouseDown(object sender, MouseButtonEventArgs e)
     {
+        // Once every stage has a box, dragging is over — PromptFinishOrRedo (called the moment
+        // the last stage's box lands, see Overlay_MouseUp) either closes the window or resets
+        // everything for a redo. Ignoring further mouse-downs here means there is never a state
+        // where the user can draw extra, unwired boxes while that decision is pending.
+        if (_stageIndex >= _stages.Count) return;
+
         _dragStart = e.GetPosition(Overlay);
 
         _preview = new ShapeRectangle
@@ -175,28 +181,48 @@ public partial class SelectRegionWindow : Window
         var f1 = ToFraction(new WpfPoint(box.Right, box.Bottom));
         var selection = new NormRect(f0.X, f0.Y, Math.Max(f1.X - f0.X, 0.01), Math.Max(f1.Y - f0.Y, 0.01));
 
-        if (_stageIndex < _stages.Count)
-        {
-            // Freeze this stage's box in a different colour than the live drag preview, so it
-            // stays legible as a "done" marker while the next region is dragged over it.
-            _preview!.Stroke = Brushes.Cyan;
-            _preview.StrokeThickness = 2;
-            _preview = null;
+        // Freeze this stage's box in a different colour than the live drag preview, so it
+        // stays legible as a "done" marker while the next region is dragged over it.
+        _preview!.Stroke = Brushes.Cyan;
+        _preview.StrokeThickness = 2;
+        _preview = null;
 
-            _selections[_stageIndex] = selection;
-            _stageIndex++;
-        }
+        _selections[_stageIndex] = selection;
+        _stageIndex++;
+
+        if (_stageIndex == _stages.Count)
+            PromptFinishOrRedo();
         else
+            UpdateStageStatus();
+    }
+
+    /// <summary>
+    /// Fires the instant the last stage's box lands — asks in one step whether to run with these
+    /// regions or throw them all out and redo the whole marking pass. Replaces what used to
+    /// happen here: the window just sat there letting the user draw more, unwired boxes with no
+    /// clear purpose, and the cursor label went blank (nothing left to ask for) with no
+    /// indication of what to do next.
+    /// </summary>
+    private void PromptFinishOrRedo()
+    {
+        StatusText.Text = "Todas as regiões marcadas.";
+
+        var result = MessageBox.Show(this,
+            "Todas as regiões foram marcadas. Continuar com essa seleção, ou refazer do zero?",
+            "Confirmar seleção", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
         {
-            // All stages already had a box; this drag is a correction over an old one. Which
-            // exact stage it replaces cannot be told apart from geometry alone, so this simple
-            // version just leaves the fresh box as extra visual clutter and does not attempt to
-            // rewire it to a specific stage — good enough for now, since Cancel-and-restart
-            // covers the rare case of wanting to redo an early region.
-            _preview!.Stroke = Brushes.Cyan;
-            _preview = null;
+            DialogResult = true;
+            return;
         }
 
+        // Redo: throw away every committed box and start the stage sequence over from zero.
+        foreach (var rectangle in Overlay.Children.OfType<ShapeRectangle>().ToList())
+            Overlay.Children.Remove(rectangle);
+
+        Array.Clear(_selections);
+        _stageIndex = 0;
         UpdateStageStatus();
     }
 
@@ -209,6 +235,8 @@ public partial class SelectRegionWindow : Window
             return;
         }
 
-        DialogResult = true;
+        // Reachable only if PromptFinishOrRedo somehow didn't already run (defensive, not
+        // expected in normal use) — same yes/no decision either way.
+        PromptFinishOrRedo();
     }
 }
