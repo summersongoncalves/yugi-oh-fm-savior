@@ -12,23 +12,31 @@ using DrawingRectangle = System.Drawing.Rectangle;
 namespace YgoFm.App;
 
 /// <summary>
-/// The whole program, for now: pick the emulator window, mark where the hand cards are, then
-/// watch that region continuously and show what the recogniser thinks is in each slot. This is
-/// the first slice — proving recognition works — before any fusion suggestion exists.
+/// The whole program, for now: pick the emulator window, mark where the hand cards and the
+/// card-name panel are, then watch continuously — showing what the recogniser thinks is in each
+/// slot, teaching the personal template library from the OCR'd name of whichever card is
+/// currently selected, and listing whatever monster fusions the recognised hand allows.
 /// </summary>
 public partial class MainWindow : Window
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(700);
+    // A tick that finds nothing to do is cheap; the _busy guard means an overrun just delays
+    // the next one rather than overlapping, so this is a target cadence, not a hard budget. It
+    // was 700ms until the recognizer grew a multi-scale search (see CardArtLibrary.Match) that
+    // measured at 1.4-1.8s for 5 slots — set well above that so most ticks land on schedule.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2000);
 
     private readonly ObservableCollection<SlotReadingView> _rows = [];
+    private readonly ObservableCollection<FusionRowView> _fusionRows = [];
 
     private CardDatabase? _cards;
     private CardArtLibrary? _art;
+    private TaughtCardLibrary? _taught;
     private HandReader? _reader;
 
     private IntPtr _targetWindow;
     private string _targetWindowTitle = "";
     private NormRect? _handRegion;
+    private NormRect? _nameRegion;
     private DispatcherTimer? _timer;
     private bool _busy;
 
@@ -36,6 +44,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         ReadingsList.ItemsSource = _rows;
+        FusionsList.ItemsSource = _fusionRows;
         Closed += (_, _) => StopObserving();
     }
 
@@ -84,12 +93,27 @@ public partial class MainWindow : Window
 
         using (snapshot)
         {
-            var regionPicker = new SelectHandRegionWindow(snapshot) { Owner = this };
-            if (regionPicker.ShowDialog() != true || regionPicker.Selection is not { } region) return;
+            var handPicker = new SelectRegionWindow(snapshot,
+                "Selecione onde ficam as cartas da mão",
+                "Arraste um retângulo cobrindo exatamente a fileira de cartas da mão — todas as cartas " +
+                "disponíveis para jogar, lado a lado, incluindo a faixa de ATQ/DEF embaixo de cada uma " +
+                "(é nela que aparece a setinha indicando qual carta está selecionada). " +
+                "É essa faixa que o programa vai observar continuamente.")
+            { Owner = this };
+            if (handPicker.ShowDialog() != true || handPicker.Selection is not { } handRegion) return;
+
+            var namePicker = new SelectRegionWindow(snapshot,
+                "Selecione o painel do nome da carta",
+                "Arraste um retângulo sobre o painel onde o jogo escreve o nome da carta selecionada " +
+                "(a barra na parte de baixo da tela). Pode marcar com folga — largo o bastante para o " +
+                "nome mais comprido do jogo — que isso não atrapalha, ao contrário da seleção da mão.")
+            { Owner = this };
+            if (namePicker.ShowDialog() != true || namePicker.Selection is not { } nameRegion) return;
 
             _targetWindow = target.Handle;
             _targetWindowTitle = target.Title;
-            _handRegion = region;
+            _handRegion = handRegion;
+            _nameRegion = nameRegion;
 
             // The verification habit from CLAUDE.md: save what was actually selected, so a
             // wrong region can be diagnosed after the fact instead of only guessed at.
@@ -98,15 +122,20 @@ public partial class MainWindow : Window
             using (var marked = PreviewAnnotator.Annotate(snapshot,
                        [new SlotReading
                        {
-                           Slot = 0, SlotBounds = region.ToPixels(new DrawingRectangle(DrawingPoint.Empty, snapshot.Size)),
-                           ArtBounds = region.ToPixels(new DrawingRectangle(DrawingPoint.Empty, snapshot.Size)),
+                           Slot = 0, SlotBounds = handRegion.ToPixels(new DrawingRectangle(DrawingPoint.Empty, snapshot.Size)),
+                           ArtBounds = handRegion.ToPixels(new DrawingRectangle(DrawingPoint.Empty, snapshot.Size)),
                            Verdict = SlotVerdict.Confident,
                        }]))
                 marked.Save(Path.Combine(folder, "01-selected-region.png"), System.Drawing.Imaging.ImageFormat.Png);
+
+            using var namePanelCrop = FrameCropper.Crop(snapshot,
+                nameRegion.ToPixels(new DrawingRectangle(DrawingPoint.Empty, snapshot.Size)));
+            namePanelCrop.Save(Path.Combine(folder, "02-name-panel.png"), System.Drawing.Imaging.ImageFormat.Png);
         }
 
         StartMenuItem.Header = "_Parar";
         Status($"Observando '{target.Title}'.");
+        UpdateLearningStatus();
 
         _timer = new DispatcherTimer { Interval = PollInterval };
         _timer.Tick += Timer_Tick;
@@ -122,18 +151,19 @@ public partial class MainWindow : Window
         _timer = null;
 
         StartMenuItem.Header = "_Start";
-        Status("Parado. Clique em Start para escolher a janela e a região novamente.");
+        Status("Parado. Clique em Start para escolher a janela e as regiões novamente.");
     }
 
     private bool EnsureDataLoaded()
     {
-        if (_cards is not null && _art is not null) return true;
+        if (_cards is not null && _art is not null && _taught is not null) return true;
 
         try
         {
             _cards = CardDatabase.Load(ProjectPaths.CardsFile);
             _art = CardArtLibrary.Load(ProjectPaths.CardArtFile, _cards.Count);
-            _reader = new HandReader(_cards, _art);
+            _taught = TaughtCardLibrary.Load(ProjectPaths.Templates);
+            _reader = new HandReader(_cards, _art, _taught);
             return true;
         }
         catch (Exception ex)
@@ -150,12 +180,12 @@ public partial class MainWindow : Window
 
     private async void Timer_Tick(object? sender, EventArgs e)
     {
-        if (_busy || _reader is null || _handRegion is not { } region) return;
+        if (_busy || _reader is null || _handRegion is not { } handRegion || _nameRegion is not { } nameRegion) return;
         _busy = true;
 
         try
         {
-            var result = await System.Threading.Tasks.Task.Run(() => CaptureAndRead(region));
+            var result = await CaptureAndReadAsync(handRegion, nameRegion);
 
             if (result.Error is not null)
             {
@@ -184,6 +214,12 @@ public partial class MainWindow : Window
             _rows.Clear();
             if (result.Rows is not null)
                 foreach (var row in result.Rows) _rows.Add(row);
+
+            _fusionRows.Clear();
+            if (result.Fusions is not null)
+                foreach (var row in result.Fusions) _fusionRows.Add(row);
+
+            UpdateLearningStatus(result.JustLearned);
         }
         finally
         {
@@ -191,45 +227,101 @@ public partial class MainWindow : Window
         }
     }
 
-    private readonly record struct ReadResult(
-        DrawingBitmap? Annotated, List<SlotReadingView>? Rows, string? Error, bool Inactive);
+    private void UpdateLearningStatus(string? justLearned = null)
+    {
+        var count = _taught?.Count ?? 0;
+        var total = _cards?.Count ?? 0;
+        LearningStatusText.Text = justLearned is null
+            ? $"Biblioteca ensinada: {count} de {total} cartas."
+            : $"Biblioteca ensinada: {count} de {total} cartas. Aprendeu agora: {justLearned}.";
+    }
 
-    /// <summary>Runs off the UI thread: capture, crop, recognise, annotate. Returns plain data
-    /// plus a ready-to-show bitmap, so the UI thread only has to hand it to the controls.</summary>
-    private ReadResult CaptureAndRead(NormRect region)
+    private readonly record struct ReadResult(
+        DrawingBitmap? Annotated, List<SlotReadingView>? Rows, List<FusionRowView>? Fusions,
+        string? JustLearned, string? Error, bool Inactive);
+
+    /// <summary>
+    /// Runs the capture, recognition and (best-effort) teaching for one tick. Recognition
+    /// happens off the UI thread via <see cref="Task.Run(Func{Task})"/>; the name panel's OCR
+    /// is itself async, so this whole method is too rather than blocking a pool thread on it.
+    /// </summary>
+    private Task<ReadResult> CaptureAndReadAsync(NormRect handRegion, NormRect nameRegion) =>
+        Task.Run(() => CaptureAndReadCoreAsync(handRegion, nameRegion));
+
+    private async Task<ReadResult> CaptureAndReadCoreAsync(NormRect handRegion, NormRect nameRegion)
     {
         var bounds = ScreenCapture.WindowBounds(_targetWindow);
         if (bounds.Width <= 0 || bounds.Height <= 0)
-            return new ReadResult(null, null, "A janela do emulador não está mais visível.", false);
-
-        var cropBounds = region.ToPixels(new DrawingRectangle(DrawingPoint.Empty, bounds.Size));
+            return new ReadResult(null, null, null, null, "A janela do emulador não está mais visível.", false);
 
         // We read pixels off the composited desktop: if the emulator is not the foreground
         // window, whatever got raised over it would be captured instead — another window, or
         // the desktop. Rather than capture that garbage, skip the tick entirely and leave the
         // last real frame on screen; the status line is what tells the user it is paused.
         if (!ScreenCapture.IsForeground(_targetWindow))
-            return new ReadResult(null, null, null, true);
+            return new ReadResult(null, null, null, null, null, true);
 
         using var full = ScreenCapture.CaptureRegion(bounds);
+        var frameSize = new DrawingRectangle(DrawingPoint.Empty, full.Size);
 
-        DrawingBitmap crop;
+        DrawingBitmap handCrop;
         try
         {
-            crop = FrameCropper.Crop(full, cropBounds);
+            handCrop = FrameCropper.Crop(full, handRegion.ToPixels(frameSize));
         }
         catch (ArgumentOutOfRangeException)
         {
-            return new ReadResult(null, null,
-                "A região selecionada não cabe mais na janela — ela pode ter sido redimensionada.", false);
+            return new ReadResult(null, null, null, null,
+                "A região da mão não cabe mais na janela — ela pode ter sido redimensionada.", false);
         }
 
-        using (crop)
+        using (handCrop)
         {
-            var readings = _reader!.Read(crop, HandLayout.Default);
-            var annotated = PreviewAnnotator.Annotate(crop, readings);
+            var readings = _reader!.Read(handCrop, HandLayout.Default);
+            var annotated = PreviewAnnotator.Annotate(handCrop, readings);
             var rows = readings.Select(r => new SlotReadingView(r)).ToList();
-            return new ReadResult(annotated, rows, null, false);
+
+            // Testing slice: use whatever the recogniser currently reports, confident or not,
+            // so this table reflects the recognition pipeline as it actually behaves right now.
+            var handIds = readings.Where(r => r.Card is not null).Select(r => r.Card!.Id).ToList();
+            var fusions = _cards!.PossibleFusions(handIds).Select(f => new FusionRowView(f)).ToList();
+
+            var learned = await TryTeachAsync(full, frameSize, nameRegion, handCrop);
+
+            return new ReadResult(annotated, rows, fusions, learned, null, false);
+        }
+    }
+
+    /// <summary>
+    /// The "path 1 teaches path 2" step: read whatever name the game currently shows, work out
+    /// which hand slot that refers to, and — only when both are unambiguous — save that slot's
+    /// artwork as what this card looks like on this machine. Never throws; a failure here should
+    /// not take down recognition, which is the part that actually matters every tick.
+    /// </summary>
+    private async Task<string?> TryTeachAsync(
+        DrawingBitmap full, DrawingRectangle frameSize, NormRect nameRegion, DrawingBitmap handCrop)
+    {
+        try
+        {
+            using var namePanelCrop = FrameCropper.Crop(full, nameRegion.ToPixels(frameSize));
+            var nameText = await NameReader.Read(namePanelCrop);
+
+            var nameMatch = CardNameMatcher.Match(_cards!, nameText);
+            if (!nameMatch.Confident) return null;
+
+            var selectedSlot = SelectionDetector.FindSelectedSlot(handCrop, HandLayout.Default.SlotCount);
+            if (selectedSlot is not { } slotIndex) return null;
+
+            var slotBounds = HandReader.SlotBounds(handCrop.Size, HandLayout.Default.SlotCount)[slotIndex];
+            using var slotCrop = handCrop.Clone(slotBounds, handCrop.PixelFormat);
+            if (CardArtLibrary.LooksEmpty(slotCrop)) return null;
+
+            _taught!.Teach(nameMatch.Card!.Id, slotCrop);
+            return $"{nameMatch.Card.Name} (#{nameMatch.Card.Id})";
+        }
+        catch
+        {
+            return null;
         }
     }
 

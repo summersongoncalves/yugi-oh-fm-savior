@@ -28,4 +28,13 @@ public sealed class SlotReadingView(SlotReading reading)
     public string ScoreLabel => reading.Verdict == SlotVerdict.Empty
         ? ""
         : $"{reading.Score:0.00} (Δ{reading.Margin:0.00})";
+
+    /// <summary>Which library the match came from — useful while watching the taught library
+    /// take over from official-art matching card by card.</summary>
+    public string SourceLabel => reading.Source switch
+    {
+        MatchSource.Taught => "ensinada",
+        MatchSource.Official => "oficial",
+        _ => "",
+    };
 }

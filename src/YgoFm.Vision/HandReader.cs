@@ -50,6 +50,22 @@ public sealed record SlotReading
 
     /// <summary>How far the winner led the runner-up.</summary>
     public double Margin => Score - RunnerUpScore;
+
+    /// <summary>Which library the match (if any) came from.</summary>
+    public MatchSource Source { get; init; } = MatchSource.None;
+}
+
+/// <summary>Which reference the winning match was found against.</summary>
+public enum MatchSource
+{
+    None,
+
+    /// <summary>Matched against the personal, self-taught library (see <see cref="TaughtCardLibrary"/>) —
+    /// the same rendering style as the capture itself, so a much higher bar for "confident" applies.</summary>
+    Taught,
+
+    /// <summary>Matched against the official card-art sheet (see <see cref="CardArtLibrary"/>).</summary>
+    Official,
 }
 
 /// <summary>
@@ -80,13 +96,26 @@ public sealed class HandReader
     /// </summary>
     public const double ConfidentMargin = 0.05;
 
+    /// <summary>
+    /// The taught library compares a capture against earlier captures of the same card, made on
+    /// this same machine — the same blur, the same filter, the same colour grading — so a
+    /// genuine match should score much higher than official-art matching ever did. Set higher
+    /// than <see cref="ConfidentScore"/>/<see cref="ConfidentMargin"/> on that basis, though
+    /// this is still a starting point rather than something measured across many taught cards.
+    /// </summary>
+    public const double TaughtConfidentScore = 0.55;
+
+    public const double TaughtConfidentMargin = 0.10;
+
     private readonly CardDatabase _cards;
     private readonly CardArtLibrary _art;
+    private readonly TaughtCardLibrary? _taught;
 
-    public HandReader(CardDatabase cards, CardArtLibrary art)
+    public HandReader(CardDatabase cards, CardArtLibrary art, TaughtCardLibrary? taught = null)
     {
         _cards = cards;
         _art = art;
+        _taught = taught;
     }
 
     /// <summary>Divide a frame into equal side-by-side card positions.</summary>
@@ -134,9 +163,23 @@ public sealed class HandReader
             };
         }
 
+        // The personal library gets first look: a match there is comparing this capture
+        // against earlier captures of the same card from the same setup, which should be a far
+        // closer match than anything official art can offer. Only fall back to official art —
+        // and its lower, margin-led bar — when the taught library has nothing confident to say.
+        var taughtMatch = _taught?.Match(slotBitmap);
+        if (taughtMatch is { } tm && tm.Score >= TaughtConfidentScore && tm.Margin >= TaughtConfidentMargin)
+            return BuildReading(slotNumber, slotBounds, tm, MatchSource.Taught, SlotVerdict.Confident);
+
         var match = _art.Match(slotBitmap);
         var confident = match.Score >= ConfidentScore && match.Margin >= ConfidentMargin;
+        return BuildReading(slotNumber, slotBounds, match, MatchSource.Official,
+            confident ? SlotVerdict.Confident : SlotVerdict.Uncertain);
+    }
 
+    private SlotReading BuildReading(int slotNumber, Rectangle slotBounds, ArtMatch match,
+        MatchSource source, SlotVerdict verdict)
+    {
         // MatchedRegion is relative to the slot bitmap; translate it back to frame coordinates.
         var artBounds = new Rectangle(
             slotBounds.X + match.MatchedRegion.X, slotBounds.Y + match.MatchedRegion.Y,
@@ -147,11 +190,12 @@ public sealed class HandReader
             Slot = slotNumber,
             SlotBounds = slotBounds,
             ArtBounds = artBounds,
-            Verdict = confident ? SlotVerdict.Confident : SlotVerdict.Uncertain,
+            Verdict = verdict,
             Card = _cards.TryGet(match.CardId, out var card) ? card : null,
             RunnerUp = _cards.TryGet(match.RunnerUpId, out var runner) ? runner : null,
             Score = match.Score,
             RunnerUpScore = match.RunnerUpScore,
+            Source = source,
         };
     }
 }

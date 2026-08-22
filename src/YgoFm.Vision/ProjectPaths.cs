@@ -15,10 +15,19 @@ public static class ProjectPaths
     public static string CardsFile => Path.Combine(Data, "cards.json");
 
     /// <summary>
-    /// The card artwork sheet: a 25-column grid of 40x32 tiles in card id order, which is
-    /// the reference the recogniser matches captured card art against.
+    /// The card artwork sheet: a 25-column grid of 102x96 tiles in card id order, which is
+    /// the official reference the recogniser falls back to for any card not yet taught (see
+    /// <see cref="Templates"/>).
     /// </summary>
     public static string CardArtFile => Path.Combine(Data, "card-art.png");
+
+    /// <summary>
+    /// Where the personal, self-taught card template library lives — one PNG per learned card,
+    /// captured from this machine's own emulator rendering by pairing an OCR'd card name with
+    /// the artwork crop under the current selection. Never shipped or committed; it is built up
+    /// locally through play and is meaningless on anyone else's setup.
+    /// </summary>
+    public static string Templates => EnsureDirectory(Path.Combine(Data, "templates"));
 
     /// <summary>Scratch folder for exported crops, used to eyeball what the recogniser actually saw.</summary>
     public static string Captures => EnsureDirectory(Path.Combine(Data, "captures"));
