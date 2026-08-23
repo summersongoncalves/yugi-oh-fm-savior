@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using YgoFm.Vision;
 // See BitmapInterop.cs for why System.Drawing is aliased rather than imported wholesale.
 using DrawingBitmap = System.Drawing.Bitmap;
@@ -208,7 +209,7 @@ public partial class SelectRegionWindow : Window
         StatusText.Text = "Todas as regiões marcadas.";
 
         var result = MessageBox.Show(this,
-            "Todas as regiões foram marcadas. Continuar com essa seleção, ou refazer do zero?",
+            "Você selecionou as duas áreas corretamente?",
             "Confirmar seleção", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
         if (result == MessageBoxResult.Yes)
@@ -224,6 +225,36 @@ public partial class SelectRegionWindow : Window
         Array.Clear(_selections);
         _stageIndex = 0;
         UpdateStageStatus();
+    }
+
+    /// <summary>
+    /// Shows a small schematic of where the two regions go, for the "ℹ" button next to the
+    /// instructions. Built as one plain Window here rather than a second .xaml file — its whole
+    /// content is a single Image, so a dedicated XAML file would be more ceremony than the thing
+    /// it displays. The picture is loaded from a "pack://application:,,," URI, which is how WPF
+    /// addresses a file that was compiled into the assembly as a Resource (see the
+    /// Resource Include in YgoFm.App.csproj) rather than one copied alongside the .exe on disk —
+    /// that is what lets this work regardless of the app's current working directory.
+    /// </summary>
+    private void ShowGuide_Click(object sender, RoutedEventArgs e)
+    {
+        var image = new Image
+        {
+            Source = new BitmapImage(new Uri("pack://application:,,,/Assets/region-guide.png")),
+            Stretch = Stretch.Uniform,
+        };
+
+        new Window
+        {
+            Title = "Exemplo de marcação",
+            Content = image,
+            Width = 620,
+            Height = 400,
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.CanResize,
+            ShowInTaskbar = false,
+        }.ShowDialog();
     }
 
     private void Confirm_Click(object sender, RoutedEventArgs e)

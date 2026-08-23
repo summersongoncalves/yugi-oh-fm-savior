@@ -5,7 +5,6 @@
         MinHeight="560" MinWidth="680">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
-            <MenuItem x:Name="StartMenuItem" Header="_Start" Click="Start_Click" />
             <MenuItem Header="_Avançado">
                 <MenuItem Header="Listar cartas aprendidas" Click="ListLearnedCards_Click" />
                 <Separator />
@@ -13,8 +12,36 @@
             </MenuItem>
         </Menu>
 
+        <!--
+             Media-player-style controls: only one of these three is ever visible at a time
+             except Pause/Resume and Stop, which show together while observing. Visibility is
+             toggled entirely in code (see MainWindow.xaml.cs's UpdateControlButtons) rather than
+             through triggers/converters, since it is one simple three-state machine (Idle /
+             Running / Paused) and a converter would be more indirection for the same result.
+        -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,6,8,6">
+            <Button x:Name="StartButton" Padding="16,10" Click="Start_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="▶" FontSize="16" Margin="0,0,8,0" />
+                    <TextBlock Text="Iniciar" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="PauseButton" Padding="16,10" Margin="8,0,0,0" Click="PauseResume_Click" Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="PauseIcon" Text="⏸" FontSize="16" Margin="0,0,8,0" />
+                    <TextBlock x:Name="PauseLabel" Text="Pausar" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="StopButton" Padding="16,10" Margin="8,0,0,0" Click="Stop_Click" Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⏹" FontSize="16" Margin="0,0,8,0" />
+                    <TextBlock Text="Parar" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
         <TextBlock x:Name="StatusText" DockPanel.Dock="Bottom" Margin="8,4" Style="{StaticResource Hint}"
-                   Text="Clique em Start no menu para escolher a janela do emulador e a região da mão." />
+                   Text="Clique em Iniciar para escolher a janela do emulador e a região da mão." />
 
         <TextBlock x:Name="LearningStatusText" DockPanel.Dock="Bottom" Margin="8,4,8,0" Style="{StaticResource Hint}"
                    Text="Biblioteca ensinada: 0 cartas." />
@@ -22,7 +49,7 @@
         <!--
              Single column, stacked top to bottom: the preview snapshot (sized to its own actual
              pixels, not stretched to fill space — see PreviewImage below), then the hand-reading
-             table (sized to exactly its 5 rows, no wasted space), then the fusion table filling
+             table (sized to exactly its 5 rows, no wasted space), then the fusion list filling
              whatever is left. Each "Auto" row asks WPF to size that row to its content's natural
              height rather than sharing space proportionally, which is what makes both the image
              and the 5-row table hug their real content instead of stretching.
@@ -93,84 +120,16 @@
             <TextBlock Grid.Row="4" Text="Fusões de monstro possíveis" FontWeight="Bold" Margin="2,8,2,4" />
 
             <Grid Grid.Row="5">
-                <ListView x:Name="FusionsList">
-                    <ListView.View>
-                        <GridView>
-                            <GridViewColumn Header="Carta 1" Width="76">
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel ToolTip="{Binding Card1}">
-                                            <Image Source="{Binding Image1}" Height="42" Stretch="Uniform" />
-                                            <TextBlock Text="{Binding Card1}" FontSize="10" TextWrapping="Wrap"
-                                                       TextAlignment="Center" MaxWidth="72" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                            <GridViewColumn Header="Carta 2" Width="76">
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel ToolTip="{Binding Card2}">
-                                            <Image Source="{Binding Image2}" Height="42" Stretch="Uniform" />
-                                            <TextBlock Text="{Binding Card2}" FontSize="10" TextWrapping="Wrap"
-                                                       TextAlignment="Center" MaxWidth="72" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                            <GridViewColumn Header="Carta 3" Width="76">
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel ToolTip="{Binding Card3}">
-                                            <Image Source="{Binding Image3}" Height="42" Stretch="Uniform" />
-                                            <TextBlock Text="{Binding Card3}" FontSize="10" TextWrapping="Wrap"
-                                                       TextAlignment="Center" MaxWidth="72" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                            <GridViewColumn Header="Carta 4" Width="76">
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel ToolTip="{Binding Card4}">
-                                            <Image Source="{Binding Image4}" Height="42" Stretch="Uniform" />
-                                            <TextBlock Text="{Binding Card4}" FontSize="10" TextWrapping="Wrap"
-                                                       TextAlignment="Center" MaxWidth="72" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                            <GridViewColumn Header="Carta 5" Width="76">
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel ToolTip="{Binding Card5}">
-                                            <Image Source="{Binding Image5}" Height="42" Stretch="Uniform" />
-                                            <TextBlock Text="{Binding Card5}" FontSize="10" TextWrapping="Wrap"
-                                                       TextAlignment="Center" MaxWidth="72" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                            <GridViewColumn Header="Resultado" Width="110">
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <!-- The only column that also shows ATK/DEF: knowing what
-                                             a fusion produces matters most for the card you would
-                                             actually end up playing, not the materials spent to
-                                             get there. -->
-                                        <StackPanel ToolTip="{Binding Result}">
-                                            <Image Source="{Binding ImageResult}" Height="42" Stretch="Uniform" />
-                                            <TextBlock Text="{Binding Result}" FontSize="10" TextWrapping="Wrap"
-                                                       TextAlignment="Center" MaxWidth="106" FontWeight="Bold" />
-                                            <TextBlock Text="{Binding ResultStats}" FontSize="9" TextAlignment="Center"
-                                                       Foreground="Gray" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                        </GridView>
-                    </ListView.View>
-                </ListView>
+                <!--
+                     No GridView/headers here on purpose — each row is a whole ready-made
+                     WPF element (built by FusionRowBuilder) reading like "carta + carta = carta",
+                     not a spreadsheet. An ItemsControl accepts already-built UIElements directly
+                     as its items with no DataTemplate needed, which is what FusionRowBuilder
+                     hands it; see that class for why the rows are built in code instead of XAML.
+                -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="FusionsList" />
+                </ScrollViewer>
 
                 <TextBlock x:Name="NoFusionsText" Style="{StaticResource Hint}"
                            HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0"

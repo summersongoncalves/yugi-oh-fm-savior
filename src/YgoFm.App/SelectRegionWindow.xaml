@@ -4,8 +4,12 @@
         Title="Selecione as regiões" Height="640" Width="900"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False" MinHeight="360" MinWidth="480">
     <DockPanel Margin="12">
-        <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" TextWrapping="Wrap"
-                   Text="Arraste um retângulo para cada região pedida — siga o rótulo junto do cursor. A marcação de cada etapa fica visível enquanto você faz as seguintes." />
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock TextWrapping="Wrap" VerticalAlignment="Center"
+                       Text="Selecione a área das 5 cartas e também onde ficam o nome e pontuação, conforme a imagem" />
+            <Button Content="ℹ" FontSize="14" Width="26" Height="26" Margin="8,0,0,0"
+                    ToolTip="Ver exemplo de como marcar" Click="ShowGuide_Click" />
+        </StackPanel>
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
             <TextBlock x:Name="StatusText" Style="{StaticResource Hint}" VerticalAlignment="Center"

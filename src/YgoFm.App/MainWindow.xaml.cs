@@ -28,7 +28,17 @@ public partial class MainWindow : Window
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2000);
 
     private readonly ObservableCollection<SlotReadingView> _rows = [];
-    private readonly ObservableCollection<FusionRowView> _fusionRows = [];
+
+    // UIElement, not a view-model type: see FusionRowBuilder for why each row is a whole
+    // ready-made WrapPanel rather than data an ItemsControl DataTemplate renders.
+    private readonly ObservableCollection<UIElement> _fusionRows = [];
+
+    /// <summary>The three states the media-player-style controls (see MainWindow.xaml) switch
+    /// between. Idle shows only Iniciar; Running and Paused both show Pausar/Continuar and
+    /// Parar, differing only in whether the polling timer is actually ticking.</summary>
+    private enum ObservingState { Idle, Running, Paused }
+
+    private ObservingState _state = ObservingState.Idle;
 
     private CardDatabase? _cards;
     private CardArtLibrary? _art;
@@ -68,20 +78,53 @@ public partial class MainWindow : Window
         InitializeComponent();
         ReadingsList.ItemsSource = _rows;
         FusionsList.ItemsSource = _fusionRows;
+        UpdateControlButtons();
         Closed += (_, _) => StopObserving();
     }
 
-    // ------------------------------------------------------------ Start
+    // ------------------------------------------------------------ Start / Pause / Stop
 
-    private void Start_Click(object sender, RoutedEventArgs e)
+    private void Start_Click(object sender, RoutedEventArgs e) => StartObserving();
+
+    private void PauseResume_Click(object sender, RoutedEventArgs e)
     {
-        if (_timer is not null)
+        // Pause is deliberately lighter than Stop: it only stops the DispatcherTimer, leaving
+        // _targetWindow/_handRegion/_nameRegion/_pendingTeach exactly as they are. Resuming just
+        // restarts that same timer — no re-picking the emulator window or the regions, which is
+        // the whole point of having this separate from Stop (see StopObserving, which does clear
+        // everything and always sends the user back through both pickers on the next Iniciar).
+        if (_state == ObservingState.Running)
         {
-            StopObserving();
-            return;
+            _timer?.Stop();
+            _state = ObservingState.Paused;
+            Status($"Pausado. '{_targetWindowTitle}' — clique em Continuar para retomar sem escolher tudo de novo.");
+        }
+        else if (_state == ObservingState.Paused)
+        {
+            _timer?.Start();
+            _state = ObservingState.Running;
+            Status($"Observando '{_targetWindowTitle}'.");
         }
 
-        StartObserving();
+        UpdateControlButtons();
+    }
+
+    private void Stop_Click(object sender, RoutedEventArgs e) => StopObserving();
+
+    /// <summary>
+    /// Shows/hides the three top buttons and flips the Pausar/Continuar icon and label to match
+    /// <see cref="_state"/>. Called after every state change instead of scattering
+    /// Visibility/Content assignments across each handler, so there is exactly one place that
+    /// says what each state looks like.
+    /// </summary>
+    private void UpdateControlButtons()
+    {
+        StartButton.Visibility = _state == ObservingState.Idle ? Visibility.Visible : Visibility.Collapsed;
+        PauseButton.Visibility = _state == ObservingState.Idle ? Visibility.Collapsed : Visibility.Visible;
+        StopButton.Visibility = _state == ObservingState.Idle ? Visibility.Collapsed : Visibility.Visible;
+
+        PauseIcon.Text = _state == ObservingState.Paused ? "▶" : "⏸";
+        PauseLabel.Text = _state == ObservingState.Paused ? "Continuar" : "Pausar";
     }
 
     private void StartObserving()
@@ -152,7 +195,6 @@ public partial class MainWindow : Window
             namePanelCrop.Save(Path.Combine(folder, "02-name-panel.png"), System.Drawing.Imaging.ImageFormat.Png);
         }
 
-        StartMenuItem.Header = "_Parar";
         Status($"Observando '{target.Title}'.");
         _pendingTeach = null;
         UpdateLearningStatus();
@@ -160,6 +202,9 @@ public partial class MainWindow : Window
         _timer = new DispatcherTimer { Interval = PollInterval };
         _timer.Tick += Timer_Tick;
         _timer.Start();
+
+        _state = ObservingState.Running;
+        UpdateControlButtons();
     }
 
     // ------------------------------------------------------------ Avançado menu
@@ -214,8 +259,9 @@ public partial class MainWindow : Window
         _timer.Tick -= Timer_Tick;
         _timer = null;
 
-        StartMenuItem.Header = "_Start";
-        Status("Parado. Clique em Start para escolher a janela e as regiões novamente.");
+        _state = ObservingState.Idle;
+        UpdateControlButtons();
+        Status("Parado. Clique em Iniciar para escolher a janela e as regiões novamente.");
     }
 
     private bool EnsureDataLoaded()
@@ -280,9 +326,11 @@ public partial class MainWindow : Window
             if (result.Rows is not null)
                 foreach (var row in result.Rows) _rows.Add(row);
 
+            // Built here, not in CaptureAndReadCoreAsync, because this is the UI thread — see
+            // the field comment on ReadResult.Fusions for why that boundary matters.
             _fusionRows.Clear();
             if (result.Fusions is not null)
-                foreach (var row in result.Fusions) _fusionRows.Add(row);
+                foreach (var chain in result.Fusions) _fusionRows.Add(FusionRowBuilder.Build(chain, _thumbnails!));
 
             // Set directly rather than through a data binding + IValueConverter (the more
             // "proper WPF" way to turn a count into a Visibility): there is nothing else in this
@@ -315,8 +363,13 @@ public partial class MainWindow : Window
         LearningStatusText.Text = diagnostic is null ? header : $"{header} [{diagnostic}]";
     }
 
+    // Fusions carries the raw domain data (FusionFinder.FusionChain), not a WPF element — it is
+    // built on the background thread inside CaptureAndReadCoreAsync, and WPF UIElements have
+    // thread affinity (they must be created on the Dispatcher thread they will be used from).
+    // Timer_Tick, back on the UI thread after the await, is what turns each chain into an actual
+    // row via FusionRowBuilder.Build.
     private readonly record struct ReadResult(
-        DrawingBitmap? Annotated, List<SlotReadingView>? Rows, List<FusionRowView>? Fusions,
+        DrawingBitmap? Annotated, List<SlotReadingView>? Rows, List<FusionFinder.FusionChain>? Fusions,
         string? JustLearned, string? TeachDiagnostic, string? Error, bool Inactive);
 
     /// <summary>
@@ -374,7 +427,7 @@ public partial class MainWindow : Window
             // Testing slice: use whatever the recogniser currently reports, confident or not,
             // so this table reflects the recognition pipeline as it actually behaves right now.
             var handIds = readings.Where(r => r.Card is not null).Select(r => r.Card!.Id).ToList();
-            var fusions = _cards!.PossibleChains(handIds).Select(f => new FusionRowView(f, _thumbnails!)).ToList();
+            var fusions = _cards!.PossibleChains(handIds).ToList();
 
             var teach = await TryTeachAsync(full, frameSize, nameRegion, handCrop, readings);
 
