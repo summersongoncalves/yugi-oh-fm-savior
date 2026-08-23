@@ -23,4 +23,11 @@
     <ProjectReference Include="..\YgoFm.Vision\YgoFm.Vision.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Build action "Resource" compiles this into the assembly itself (not copied alongside
+         the .exe), which is why it can be loaded from a pack:// URI regardless of the app's
+         working directory — see SelectRegionWindow's info-button handler. -->
+    <Resource Include="Assets\region-guide.png" />
+  </ItemGroup>
+
 </Project>
