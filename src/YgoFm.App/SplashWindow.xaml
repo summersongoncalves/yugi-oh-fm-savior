@@ -1,0 +1,13 @@
+<Window x:Class="YgoFm.App.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Yu-Gi-Oh! Forbidden Memories"
+        WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
+        WindowStartupLocation="CenterScreen" SizeToContent="WidthAndHeight"
+        Background="Black" Opacity="0">
+    <!-- The image itself already has a black background (see Assets/forbidden-memories.jpg),
+         so the window can just be plain black rather than needing AllowsTransparency — that
+         flag disables hardware-accelerated rendering for the whole window, not worth paying for
+         here since there is nothing underneath the image that needs to show through. -->
+    <Image Source="/Assets/forbidden-memories.jpg" Stretch="Uniform" MaxWidth="420" MaxHeight="420" Margin="24" />
+</Window>

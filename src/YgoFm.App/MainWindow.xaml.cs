@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using YgoFm.Core;
 using YgoFm.Vision;
@@ -119,9 +121,9 @@ public partial class MainWindow : Window
     /// </summary>
     private void UpdateControlButtons()
     {
-        StartButton.Visibility = _state == ObservingState.Idle ? Visibility.Visible : Visibility.Collapsed;
-        PauseButton.Visibility = _state == ObservingState.Idle ? Visibility.Collapsed : Visibility.Visible;
-        StopButton.Visibility = _state == ObservingState.Idle ? Visibility.Collapsed : Visibility.Visible;
+        StartMenuButton.Visibility = _state == ObservingState.Idle ? Visibility.Visible : Visibility.Collapsed;
+        PauseMenuButton.Visibility = _state == ObservingState.Idle ? Visibility.Collapsed : Visibility.Visible;
+        StopMenuButton.Visibility = _state == ObservingState.Idle ? Visibility.Collapsed : Visibility.Visible;
 
         PauseIcon.Text = _state == ObservingState.Paused ? "▶" : "⏸";
         PauseLabel.Text = _state == ObservingState.Paused ? "Continuar" : "Pausar";
@@ -249,6 +251,78 @@ public partial class MainWindow : Window
         _pendingTeach = null; // otherwise a streak already in progress could re-teach on the very next tick
         UpdateLearningStatus();
         Status("Aprendizado limpo.");
+    }
+
+    /// <summary>
+    /// Built as a plain Window in code, the same way SelectRegionWindow's guide-image popup is —
+    /// its whole content is a handful of TextBlocks and a copyable email/Pix key, not enough to
+    /// justify a dedicated .xaml file.
+    /// </summary>
+    private void About_Click(object sender, RoutedEventArgs e)
+    {
+        var panel = new StackPanel { Margin = new Thickness(20) };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "🇧🇷 Made in Brazil",
+            FontSize = 18,
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Feito por Summerson Gonçalves.",
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Contato / chave Pix:",
+            TextAlignment = TextAlignment.Center,
+            Foreground = Brushes.Gray,
+            FontSize = 11,
+        });
+
+        // A read-only TextBox (not a TextBlock) so the email/Pix key can be selected and
+        // copied with Ctrl+C — a TextBlock's text is not selectable by default in WPF.
+        panel.Children.Add(new TextBox
+        {
+            Text = "summersongoncalves@gmail.com",
+            IsReadOnly = true,
+            TextAlignment = TextAlignment.Center,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 0, 0, 16),
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Se esse app te ajudou a montar fusões melhores, um cafezinho via Pix " +
+                   "(mesma chave acima) é sempre muito bem-vindo! ☕",
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+        });
+
+        var okButton = new Button { Content = "Fechar", Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(0, 16, 0, 0), IsDefault = true, IsCancel = true };
+        panel.Children.Add(okButton);
+        okButton.HorizontalAlignment = HorizontalAlignment.Center;
+
+        var about = new Window
+        {
+            Title = "Sobre",
+            Content = panel,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+        };
+        okButton.Click += (_, _) => about.Close();
+        about.ShowDialog();
     }
 
     private void StopObserving()

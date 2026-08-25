@@ -32,9 +32,46 @@ public static class ProjectPaths
     /// <summary>Scratch folder for exported crops, used to eyeball what the recogniser actually saw.</summary>
     public static string Captures => EnsureDirectory(Path.Combine(Data, "captures"));
 
-    /// <summary>A fresh timestamped folder under <see cref="Captures"/>.</summary>
-    public static string NewCaptureFolder(DateTime now) =>
-        EnsureDirectory(Path.Combine(Captures, now.ToString("yyyy-MM-dd_HH-mm-ss")));
+    /// <summary>How many past capture sessions are kept on disk before older ones are pruned —
+    /// see <see cref="NewCaptureFolder"/>.</summary>
+    private const int MaxKeptCaptures = 10;
+
+    /// <summary>
+    /// A fresh timestamped folder under <see cref="Captures"/>. One of these is created every
+    /// time the user clicks Iniciar (see MainWindow.StartObserving) — they are throwaway
+    /// verification artifacts by design (the "eyeball what was actually selected" habit from
+    /// CLAUDE.md), never referenced again once a session is confirmed working, so with no
+    /// pruning they just accumulate on disk indefinitely across every test run. This keeps only
+    /// the most recent <see cref="MaxKeptCaptures"/>, deleting older ones right after the new
+    /// folder is created.
+    /// </summary>
+    public static string NewCaptureFolder(DateTime now)
+    {
+        var folder = EnsureDirectory(Path.Combine(Captures, now.ToString("yyyy-MM-dd_HH-mm-ss")));
+        PruneOldCaptures();
+        return folder;
+    }
+
+    private static void PruneOldCaptures()
+    {
+        // The timestamped folder names sort chronologically as plain strings (yyyy-MM-dd_HH-mm-ss
+        // is a sortable format by construction), so this needs no date parsing to know which
+        // folders are oldest.
+        var folders = Directory.GetDirectories(Captures).OrderBy(f => f).ToList();
+
+        for (var i = 0; i < folders.Count - MaxKeptCaptures; i++)
+        {
+            try
+            {
+                Directory.Delete(folders[i], recursive: true);
+            }
+            catch
+            {
+                // Best-effort: a folder locked by another process (e.g. an image still open in
+                // a viewer) should never stop the app from starting a new capture.
+            }
+        }
+    }
 
     private static string FindRoot()
     {

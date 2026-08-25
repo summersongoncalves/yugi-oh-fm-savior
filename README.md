@@ -1,0 +1,97 @@
+# Yu-Gi-Oh! Forbidden Memories — Assistente
+
+Assistente em tempo real para **Yu-Gi-Oh! Forbidden Memories** (PlayStation 1, 2002). Ele observa
+a tela do seu emulador, identifica as cartas na sua mão e sugere as fusões de monstro possíveis,
+sem ler a memória do emulador, só a tela, então funciona com qualquer emulador de PS1.
+
+> Status: em desenvolvimento ativo. O reconhecimento de cartas e o motor de fusão já funcionam;
+> ainda estamos ajustando precisão e visual.
+
+## Como funciona (visão geral)
+
+O projeto é dividido em três bibliotecas, cada uma cuidando de uma parte:
+
+```
+janela do emulador  →  YgoFm.Vision  →  ids de cartas  →  YgoFm.Core  →  sugestões  →  YgoFm.App
+                       (captura, OCR,                     (regras de                  (interface
+                        reconhecimento)                    fusão)                      WPF)
+```
+
+- **`YgoFm.Core`**  dados puros do jogo: as 722 cartas, a tabela de fusões, e a busca por
+  cadeias de fusão sequenciais (o jogo funde cartas na ordem em que são jogadas, não em pares
+  soltos). Não sabe nada sobre tela, imagem ou interface.
+- **`YgoFm.Vision`**  captura a tela, recorta as regiões marcadas pelo usuário, e reconhece as
+  cartas de duas formas complementares:
+  1. **Comparação de imagem** contra uma folha de arte oficial das 722 cartas (usando OpenCV).
+  2. **Leitura de texto (OCR)** do nome da carta selecionada, que "ensina" uma biblioteca pessoal
+     de imagens, construída a partir do seu próprio emulador, o que fica muito mais preciso do
+     que comparar contra arte oficial genérica.
+- **`YgoFm.App`** a janela WPF: escolher o emulador, marcar as regiões da tela, e mostrar o
+  que foi reconhecido e quais fusões são possíveis.
+
+Para o detalhamento técnico completo (por que cada decisão foi tomada, limitações conhecidas,
+como o reconhecimento é calibrado), veja [CLAUDE.md](CLAUDE.md).
+
+## Requisitos
+
+- Windows 10 ou mais recente (usa APIs do Windows para captura de tela e OCR).
+- [.NET 10 SDK](https://dotnet.microsoft.com/download).
+- Um emulador de PlayStation 1 rodando o jogo (qualquer um: DuckStation, ePSXe, RetroArch, etc.).
+
+## Baixando e rodando o projeto
+
+```powershell
+git clone https://github.com/summersongoncalves/yugi-oh-fm-savior.git
+cd yugi-oh-fm-savior
+dotnet build YgoFm.slnx
+dotnet run --project src\YgoFm.App
+```
+
+> O arquivo de solução é `YgoFm.slnx`, não `.sln`  é o formato XML novo do .NET 10.
+> `dotnet build YgoFm.sln` (com essa extensão) não funciona.
+
+Se estiver usando VS Code, já existe uma configuração de debug pronta em `.vscode/launch.json`
+(tecla `F5`).
+
+### Dados que o app usa
+
+A pasta `data/` guarda:
+- `cards.json` e `card-art.png`  a base de cartas e a arte oficial, já versionados no repositório.
+- `templates/`  a biblioteca pessoal de cartas ensinadas (gerada localmente, nunca commitada).
+- `captures/`  capturas de tela salvas para depuração (também nunca commitada).
+
+## Contribuindo
+
+### 1. Abra uma issue antes de começar
+
+Toda mudança: funcionalidade nova, correção de bug, ajuste de reconhecimento, começa com uma
+**issue** descrevendo o problema ou a ideia. Isso evita trabalho duplicado e dá espaço para
+discutir a abordagem antes de codificar.
+
+### 2. Nomeie a branch a partir da issue
+
+```
+<tipo>/<número-da-issue>-descrição-curta
+```
+
+Exemplos: `fix/42-ocr-le-pontuacao-junto`, `feat/51-fusao-com-equipamento`.
+
+Tipos usados: `feat` (funcionalidade nova), `fix` (correção), `chore` (manutenção/infra),
+`docs` (documentação).
+
+### 3. Commits
+
+- Mensagens no imperativo, explicando o **porquê**, não só o **o quê** (o diff já mostra o quê).
+- Referencie a issue quando fizer sentido (ex: `Corrige leitura do OCR incluindo pontuação (#42)`).
+- Prefira vários commits pequenos e coerentes a um único commit gigante.
+
+### 4. Pull request
+
+- Título curto, descrevendo a mudança.
+- Descrição linkando a issue (`Closes #42`).
+- Se mexeu na interface, inclua um print ou GIF do antes/depois.
+- Descreva como testou (rodou contra qual emulador, quais cartas/telas verificou).
+
+## Licença
+
+Não defini isso ainda.
