@@ -4,41 +4,48 @@
         Title="Yu-Gi-Oh! Forbidden Memories — Assistente" Height="820" Width="820"
         MinHeight="560" MinWidth="680">
     <DockPanel>
+        <!--
+             The Iniciar/Pausar-Continuar/Parar controls live as leaf MenuItems (no sub-items,
+             so clicking one fires its Click event directly instead of opening a dropdown) rather
+             than a separate row of Buttons — this is what "in the menu bar" means in WPF, since
+             Menu accepts any MenuItem as a direct child and does not require every item to be a
+             text-only dropdown. Visibility is toggled entirely in code (see
+             MainWindow.xaml.cs's UpdateControlButtons) rather than through triggers/converters,
+             since it is one simple three-state machine (Idle / Running / Paused) and a converter
+             would be more indirection for the same result.
+        -->
         <Menu DockPanel.Dock="Top">
+            <MenuItem x:Name="StartMenuButton" Click="Start_Click">
+                <MenuItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="▶" FontSize="14" Margin="0,0,6,0" />
+                        <TextBlock Text="Iniciar" />
+                    </StackPanel>
+                </MenuItem.Header>
+            </MenuItem>
+            <MenuItem x:Name="PauseMenuButton" Click="PauseResume_Click" Visibility="Collapsed">
+                <MenuItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="PauseIcon" Text="⏸" FontSize="14" Margin="0,0,6,0" />
+                        <TextBlock x:Name="PauseLabel" Text="Pausar" />
+                    </StackPanel>
+                </MenuItem.Header>
+            </MenuItem>
+            <MenuItem x:Name="StopMenuButton" Click="Stop_Click" Visibility="Collapsed">
+                <MenuItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="⏹" FontSize="14" Margin="0,0,6,0" />
+                        <TextBlock Text="Parar" />
+                    </StackPanel>
+                </MenuItem.Header>
+            </MenuItem>
             <MenuItem Header="_Avançado">
                 <MenuItem Header="Listar cartas aprendidas" Click="ListLearnedCards_Click" />
                 <Separator />
                 <MenuItem Header="Limpar aprendizado" Click="ClearLearning_Click" />
             </MenuItem>
+            <MenuItem Header="_Sobre" Click="About_Click" />
         </Menu>
-
-        <!--
-             Media-player-style controls: only one of these three is ever visible at a time
-             except Pause/Resume and Stop, which show together while observing. Visibility is
-             toggled entirely in code (see MainWindow.xaml.cs's UpdateControlButtons) rather than
-             through triggers/converters, since it is one simple three-state machine (Idle /
-             Running / Paused) and a converter would be more indirection for the same result.
-        -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,6,8,6">
-            <Button x:Name="StartButton" Padding="16,10" Click="Start_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="▶" FontSize="16" Margin="0,0,8,0" />
-                    <TextBlock Text="Iniciar" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </Button>
-            <Button x:Name="PauseButton" Padding="16,10" Margin="8,0,0,0" Click="PauseResume_Click" Visibility="Collapsed">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="PauseIcon" Text="⏸" FontSize="16" Margin="0,0,8,0" />
-                    <TextBlock x:Name="PauseLabel" Text="Pausar" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </Button>
-            <Button x:Name="StopButton" Padding="16,10" Margin="8,0,0,0" Click="Stop_Click" Visibility="Collapsed">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="⏹" FontSize="16" Margin="0,0,8,0" />
-                    <TextBlock Text="Parar" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </Button>
-        </StackPanel>
 
         <TextBlock x:Name="StatusText" DockPanel.Dock="Bottom" Margin="8,4" Style="{StaticResource Hint}"
                    Text="Clique em Iniciar para escolher a janela do emulador e a região da mão." />
