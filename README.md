@@ -3,9 +3,12 @@
 Assistente em tempo real para **Yu-Gi-Oh! Forbidden Memories** (PlayStation 1, 2002). Ele observa
 a tela do seu emulador, identifica as cartas na sua mão e sugere as fusões de monstro possíveis,
 sem ler a memória do emulador, só a tela, então funciona com qualquer emulador de PS1.
-
 > Status: em desenvolvimento ativo. O reconhecimento de cartas e o motor de fusão já funcionam;
-> ainda estamos ajustando precisão e visual.
+> faltando: fusão com cartas mágicas
+1- Abra o app e selecione a janela do emulador
+2- Selecione a área das cartas e a área do nome das cartas.
+Pronto :D !!!
+<img width="800" height="400" alt="UIrecordyugi-oh-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/b2602a10-f643-4085-8e0c-de9aaeaab191" />
 
 ## Como funciona (visão geral)
 
