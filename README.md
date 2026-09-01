@@ -6,7 +6,7 @@ sem ler a memória do emulador, só a tela, então funciona com qualquer emulado
 
 > Status: em desenvolvimento ativo. O reconhecimento de cartas e o motor de fusão já funcionam;
 
-> faltando: fusão com cartas mágicas 
+> faltando: fusão com cartas mágicas e versão em inglês
 
 1- Abra o app e selecione a janela do emulador
 
